@@ -1,0 +1,3085 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <title>瀑布流游戏</title>
+    <!--样式-->
+    <style>
+        body{
+            margin:0px;
+            overflow: hidden;
+        }
+    </style>
+    <!--引入THREE.js-->
+    <script src="three.js"></script>
+    <script src="OrbitControls.js"></script>
+    <script src="OBJLoader.js"></script>
+    <script src="MTLLoader.js"></script>
+    <script src="myBoxGeometry.js"></script>
+    <script src="Bird.js"></script>
+    <script src="stats.min.js"></script>
+</head>
+<body>
+<div id="container"></div>
+
+<script>
+
+    // Based on http://www.openprocessing.org/visuals/?visualID=6910
+
+    var Boid = function() {
+
+        var vector = new THREE.Vector3(),
+                _acceleration, _width = 500, _height = 500, _depth = 200, _goal, _neighborhoodRadius = 100,
+                _maxSpeed = 2, _maxSteerForce = 0.1, _avoidWalls = false;
+
+        this.position = new THREE.Vector3();//位置
+        this.velocity = new THREE.Vector3();//速度
+        _acceleration = new THREE.Vector3();//加速度
+
+        this.setGoal = function ( target ) {
+
+            _goal = target;
+
+        };
+        this.setNeighborhoodRadius = function ( target ) {
+
+            _neighborhoodRadius = target;
+
+        };
+
+        this.setAvoidWalls = function ( value ) {
+
+            _avoidWalls = value;
+
+        };
+
+        this.setWorldSize = function ( width, height, depth ) {
+
+            _width = width;
+            _height = height;
+            _depth = depth;
+
+        };
+
+        this.run = function ( boids ) {
+//            是否避开墙壁
+            if ( _avoidWalls ) {
+
+                vector.set( - _width, this.position.y, this.position.z );//x轴左边的一个位置点 或者说从原点到这个点的向量
+                vector = this.avoid( vector );//产生一个远离这个位置点的向量
+                vector.multiplyScalar( 5 );//远离的向量的大小乘以5倍
+                _acceleration.add( vector );//给加速度加上这个远离向量
+
+                vector.set( _width, this.position.y, this.position.z );
+                vector = this.avoid( vector );
+                vector.multiplyScalar( 5 );
+                _acceleration.add( vector );
+
+                vector.set( this.position.x, - _height, this.position.z );
+                vector = this.avoid( vector );
+                vector.multiplyScalar( 5 );
+                _acceleration.add( vector );
+
+                vector.set( this.position.x, _height, this.position.z );
+                vector = this.avoid( vector );
+                vector.multiplyScalar( 5 );
+                _acceleration.add( vector );
+
+                vector.set( this.position.x, this.position.y, - _depth );
+                vector = this.avoid( vector );
+                vector.multiplyScalar( 5 );
+                _acceleration.add( vector );
+
+                vector.set( this.position.x, this.position.y, _depth );
+                vector = this.avoid( vector );
+                vector.multiplyScalar( 5 );
+                _acceleration.add( vector );
+
+            }
+//            有一半概率运行聚集函数
+            if ( Math.random() > 0.5 ) {
+
+                this.flock( boids );
+
+            }
+//            速度改变，位置改变
+            this.move();
+
+        };
+
+        this.flock = function ( boids ) {
+//            是否靠近目标
+            if ( _goal ) {
+
+                _acceleration.add( this.reach( _goal, 0.005 ) );//接近目的坐标 向量长度乘以0.005倍
+
+            }
+
+            _acceleration.add( this.alignment( boids ) );//内聚，个体需与邻近的其他成员聚集在一起。
+            _acceleration.add( this.cohesion( boids ) );//对齐，个体需调整其方向速度与其他成员保持一致。
+            _acceleration.add( this.separation( boids ) );//分散，个体需与邻近的成员保持适当距离。
+
+        };
+
+        this.move = function () {
+
+            this.velocity.add( _acceleration );//速度加上加速度
+
+            var l = this.velocity.length();//判断速度的长度
+
+            if ( l > _maxSpeed ) {
+
+                this.velocity.divideScalar( l / _maxSpeed );
+
+            }
+
+            this.position.add( this.velocity );//按照速度移动
+            _acceleration.set( 0, 0, 0 );//加速度归零
+
+        };
+
+        this.checkBounds = function () {
+
+            if ( this.position.x >   _width ) this.position.x = - _width;//如果从x轴右边出界，则令其出现在x轴最左侧
+            if ( this.position.x < - _width ) this.position.x =   _width;//如果x从轴左边出界，则令其出现在x轴最右侧
+            if ( this.position.y >   _height ) this.position.y = - _height;//如果从y轴一侧出界，则令其出现在y轴另一侧
+            if ( this.position.y < - _height ) this.position.y =  _height;//如果从y轴一侧出界，则令其出现在y轴另一侧
+            if ( this.position.z >  _depth ) this.position.z = - _depth;//如果从z轴一侧出界，则令其出现在z轴另一侧
+            if ( this.position.z < - _depth ) this.position.z =  _depth;//如果从z轴一侧出界，则令其出现在z轴另一侧
+
+        };
+
+        //
+
+        this.avoid = function ( target ) {
+
+            var steer = new THREE.Vector3();
+
+            steer.copy( this.position );
+            steer.sub( target );//得到一个远离target的引导向量
+
+            steer.multiplyScalar( 1 / this.position.distanceToSquared( target ) );//距离越大 这个引导向量越短 受力越小
+
+            return steer;
+
+        };
+        //驱逐函数 相对target来驱逐
+        this.repulse = function ( target ) {
+
+            var distance = this.position.distanceTo( target );//与驱逐物的距离
+
+            if ( distance < 150 ) {
+
+                var steer = new THREE.Vector3();
+
+                steer.subVectors( this.position, target );//一个远离target的引导向量
+                steer.multiplyScalar( 0.5 / distance );//距离越大 向量越短 即对加速度影响越小
+
+                _acceleration.add( steer );//影响加速度
+
+            }
+
+        };
+
+        this.reach = function ( target, amount ) {
+
+            var steer = new THREE.Vector3();
+
+            steer.subVectors( target, this.position );//得到一个接近target的引导向量
+            steer.multiplyScalar( amount );//乘以amount倍
+
+            return steer;
+
+        };
+//        对齐
+        this.alignment = function ( boids ) {
+
+            var boid, velSum = new THREE.Vector3(),
+                    count = 0;
+
+            for ( var i = 0, il = boids.length; i < il; i++ ) {
+
+                if ( Math.random() > 0.6 ) continue;
+
+                boid = boids[ i ];
+
+                distance = boid.position.distanceTo( this.position );
+
+                if ( distance > 0 && distance <= _neighborhoodRadius ) {
+
+                    velSum.add( boid.velocity );
+                    count++;
+
+                }
+
+            }
+
+            if ( count > 0 ) {
+
+                velSum.divideScalar( count );
+
+                var l = velSum.length();
+
+                if ( l > _maxSteerForce ) {
+
+                    velSum.divideScalar( l / _maxSteerForce );
+
+                }
+
+            }
+
+            return velSum;//以百分之60的概率向邻居成员靠近
+
+        };
+//        内聚
+        this.cohesion = function ( boids ) {
+
+            var boid, distance,
+                    posSum = new THREE.Vector3(),
+                    steer = new THREE.Vector3(),
+                    count = 0;
+
+            for ( var i = 0, il = boids.length; i < il; i ++ ) {
+
+                if ( Math.random() > 0.6 ) continue;
+
+                boid = boids[ i ];
+                distance = boid.position.distanceTo( this.position );
+
+                if ( distance > 0 && distance <= _neighborhoodRadius ) {
+
+                    posSum.add( boid.position );
+                    count++;
+
+                }
+
+            }
+
+            if ( count > 0 ) {
+
+                posSum.divideScalar( count );
+
+            }
+
+            steer.subVectors( posSum, this.position );
+
+            var l = steer.length();
+
+            if ( l > _maxSteerForce ) {
+
+                steer.divideScalar( l / _maxSteerForce );
+
+            }
+
+            return steer;
+
+        };
+//        分散
+        this.separation = function ( boids ) {
+
+            var boid, distance,
+                    posSum = new THREE.Vector3(),
+                    repulse = new THREE.Vector3();
+
+            for ( var i = 0, il = boids.length; i < il; i ++ ) {
+
+                if ( Math.random() > 0.6 ) continue;
+
+                boid = boids[ i ];
+                distance = boid.position.distanceTo( this.position );
+
+                if ( distance > 0 && distance <= _neighborhoodRadius ) {
+
+                    repulse.subVectors( this.position, boid.position );//得到一个远离的向量
+                    repulse.normalize();//变成单位向量
+                    repulse.multiplyScalar( 10 );
+                    repulse.divideScalar( distance );//距离越小 分离的力量越大
+                    posSum.add( repulse );
+
+                }
+
+            }
+
+            return posSum;
+        }
+        //避开target点 范围n
+        this.avoidPoint = function( target ,n)
+        {
+            if(target==null)return;
+
+            vector.set( target.x+ n , this.position.y, this.position.z );//x轴左边的一个位置点 或者说从原点到这个点的向量
+            vector = this.avoid( vector );//产生一个远离这个位置点的向量
+            vector.multiplyScalar( 3 );//远离的向量的大小乘以5倍
+            _acceleration.add( vector );//给加速度加上这个远离向量
+
+            vector.set( target.x-n, this.position.y, this.position.z );
+            vector = this.avoid( vector );
+            vector.multiplyScalar( 3 );
+            _acceleration.add( vector );
+
+            vector.set( this.position.x, target.y+n, this.position.z );
+            vector = this.avoid( vector );
+            vector.multiplyScalar( 3 );
+            _acceleration.add( vector );
+
+            vector.set( this.position.x,target.y-n, this.position.z );
+            vector = this.avoid( vector );
+            vector.multiplyScalar( 3 );
+            _acceleration.add( vector );
+
+            vector.set( this.position.x, this.position.y, target.z+n );
+            vector = this.avoid( vector );
+            vector.multiplyScalar( 3 );
+            _acceleration.add( vector );
+
+            vector.set( this.position.x, this.position.y, target.z-n );
+            vector = this.avoid( vector );
+            vector.multiplyScalar( 3 );
+            _acceleration.add( vector );
+        }
+        this.checkAvoidPointBounds = function (target,n) {
+            if(target==null)return;
+            vector=vector.sub(this.position,target.position);
+            if((vector.x*vector.x+vector.y*vector.y+vector.z*vector.z)<3*n*n)//如果在不该靠近的范围内
+            {
+                this.position.x += n;
+                this.position.y += n;
+                this.position.z += n;
+            }
+
+        };
+
+    }
+
+</script>
+    <script>
+//        一些全局变量
+        //绘制白琴键和黑琴键
+        var blackKeyMode=0;//黑键模式 1为#升号 0为b降号
+        var blackKeyModesChooseButton;//黑键模式选择按钮
+
+        var blackKeyHeight=3;//黑琴键高度
+        var blackKeyWidth=blackKeyHeight*1.5;//黑琴键宽度 等于高度的1.5倍
+        var blackKeyDepth=blackKeyHeight*10;//黑琴键长度 等于高度的10倍
+        var whiteKeyHeight=blackKeyHeight;//白琴键高度 等于黑键的高度
+        var whiteKeyWidth=blackKeyHeight*2;//白琴键宽度 等于黑键的高度的2倍
+        var whiteKeyDepth=blackKeyDepth*3/2;//白琴键长度 等于黑键的长度的二分之三倍
+        var blackKey = new THREE.BoxGeometry(blackKeyWidth,blackKeyHeight,blackKeyDepth);//黑键形状
+        var whiteKey = new THREE.BoxGeometry(whiteKeyWidth,whiteKeyHeight,whiteKeyDepth);//白键形状
+        var blackKeyMesh=new THREE.MeshLambertMaterial({color:0x000000});//黑键材质
+        var whiteKeyMesh = new THREE.MeshBasicMaterial({color:0xffffff});//白键材质
+        var whiteKeyStartPosition=-154;//左边第一个白琴键的位置
+        var blackKeyStartPosition=whiteKeyStartPosition+whiteKeyWidth/2;//左边第一个黑琴键的位置
+
+
+        var px=whiteKeyStartPosition;//左边第一个白琴键x坐标
+        var py=0;//白琴键y坐标
+        var pz=0;//白琴键z坐标
+        var KeyKind;//鼠标点击时或移动时，保存最近一个被点击或指向的琴键的类型，便于在鼠标放开或移动时做相应处理
+        var KeyNum;//鼠标点击时或移动时，保存最近一个被点击或指向的琴键的序号，便于在鼠标放开或移动时做相应处理
+        var mousedown=0;//反映鼠标是否按下，0没按下，1已按下。
+
+        //初始化键盘按键对应的琴键
+        var keyFunction=[];
+
+        var wKey;
+        var objects=[];//可点击的物体们
+        var whiteKeys=[];//白键们
+        var blackKeys=[];//黑键们
+        var whiteKeysEdges=[];//白键的边框们
+        var edges=[];//边框们
+
+        var blackKeyBoxs=[];//黑琴键按键提示盒子
+        var whiteKeyBoxs=[];//白琴键按键提示盒子
+
+        var waterfallButton;//瀑布流暂停\播放按钮
+        var waterfallButtonStop=0;//用户是否点击了按钮命令瀑布流暂停 0没有 1有
+        var waterfallCloseButton;//瀑布流关闭按钮
+        var waterfallModesChooseButton;//瀑布流模式选择按钮
+        var waterfallVelocityChooseButton;//瀑布流速度选择按钮
+
+        var waterfallCubesWidth=5;
+        var deviation=waterfallCubesWidth*3;//误差  用户的弹奏允许在该误差内
+        var deadLine=py+waterfallCubesWidth;//琴键所在y坐标  瀑布流方块落到这里就要弹奏琴键
+        var fadeLine=deadLine-1;//瀑布流方块落到这里就要消失
+        var starLine=deadLine+100;//瀑布流方块初始位置y坐标
+        var waterfallVelocity=3;//控制音长
+        var waterfallCubes=[];//将要显示的瀑布流方块
+        var waterfallCubesWriting=0;//反映正在写入瀑布流方块们  if(waterfallCubes.length>0&&waterfallCubesWriting==0)则可以让瀑布流方块开始下落
+        var waterfallCubesYouCanWrite=1;//反映你是否可以写入瀑布流方块们 1可以 0不可以
+        var waterfallCubesAmount=0;//加入到了场景中的瀑布流方块个数
+        var waterfallCubesMode=0;//瀑布流游戏的模式 0为普通播放模式 1为评分模式 2为指导练习模式
+        var waterfallJudgings=[];//瀑布流播放时，用户点击的琴键们
+        var waterfallNotesAmount=0;//瀑布流音乐总共的音符个数
+        var waterfallClickedAmount=0;//用户在瀑布流音乐播放时点击的次数
+        var waterfallCorrectlyClickedAmount=0;//用户在瀑布流音乐播放过程中正确点击次数
+        var score=0;//用户最终的分数
+        var waterfallStop=0;//引导模式中 判断是否需要停止的标志 1需要停止 0不需要停止
+        var dyingCube;//用于删除瀑布流方块
+
+        var waterfallCubesDownWhiteKeys=[];//被瀑布流按下的白琴键
+        var waterfallCubesDownBlackKeys=[];//被瀑布流按下的黑琴键
+
+        var waterfallVisible=1;//瀑布流是否可见 1可见 0不可见
+        var waterfallMusicChooseButton;//瀑布流示例曲目选择按钮
+        var waterfallMusicChooseNum=0;//被选中的瀑布流实例曲目序号
+        var waterfallMusicAmount=3;
+        var waterfallCubesAtLine=0;//到达deadline的瀑布流方块个数
+        var waterfallAtLineCubes=[];//到达deadline的瀑布流方块们
+
+        var waterfallButtonStop=0;//瀑布流暂停、播放按钮控制
+
+        //自定义琴键的一些全局变量
+        var keyboardSelfDefining=0;//是否正在自定义琴键 0否 1是
+        var keyboardSelfDefineChoosed=0;//是否已经选中要定义的琴键 0否 1是
+        var keyboardSelfDefineChoosedKey;//用户选中要进行自定义的琴键Object
+        var keyboardRecoverButton;//琴键按键恢复初始化设置
+
+
+
+
+        var keyboardkeyDown=[];
+
+//        加入飞鸟
+        var SCREEN_WIDTH = window.innerWidth,
+                SCREEN_HEIGHT = window.innerHeight,
+                SCREEN_WIDTH_HALF = SCREEN_WIDTH  / 2,
+                SCREEN_HEIGHT_HALF = SCREEN_HEIGHT / 2;
+        var birdsGoal=new THREE.Vector3(0,30,0);
+        var birds, bird;
+        var neighborhoodRadius=100;
+
+        var boid, boids;
+        var refuse;
+        var stats = new Stats();
+        document.getElementById( 'container' ).appendChild(stats.dom);
+
+        var birdButton;//关闭/开启飞鸟按钮
+        var birdClosed=0;//是否关闭了飞鸟
+
+        //    返回上一个页面按钮
+        var backButton;
+//        简谱基础教学选择按钮
+        var numberedMusicalNotationTeachingButton;
+        var numberedMusicalNotationTeaching=0;
+        var whiteKeyPlanes=[];
+        var blackKeyPlanes=[];
+
+        //    五线谱相关全局变量
+        var blackKeyStavePositionY=[];//黑键在五线谱上的位置y
+        var whiteKeyStavePositionY=[];//白键在五线谱上的位置y
+        var staveCenterPositionY=40;
+        var stavePositionZ=-30;
+        var stavePlane;
+        var stavePlaneLines=[];
+        var staveNotePlanes=[];
+        var staveIng=0;
+        var staveButton;
+        var GclefPlane;
+        var FclefPlane;
+        var flats=[];
+        var sharps=[];
+        var blackKeyFlatAndSharpNum=[];
+
+
+
+//        示例曲目小星星C大调无伴奏
+         var littlestar=[
+                [224,8,8],
+                [224,8,8],
+                [228,8,8],
+                [228,8,8],
+                [229,8,8],
+                [229,8,8],
+                [228,16,16],
+                [227,8,8],
+                [227,8,8],
+                [226,8,8],
+                [226,8,8],
+                [225,8,8],
+                [225,8,8],
+                [224,16,16],
+                [228,8,8],
+                [228,8,8],
+                [227,8,8],
+                [227,8,8],
+                [226,8,8],
+                [226,8,8],
+                [225,16,16],
+                [228,8,8],
+                [228,8,8],
+                [227,8,8],
+                [227,8,8],
+                [226,8,8],
+                [226,8,8],
+                [225,16,16],
+                [224,8,8],
+                [224,8,8],
+                [228,8,8],
+                [228,8,8],
+                [229,8,8],
+                [229,8,8],
+                [228,16,16],
+                [227,8,8],
+                [227,8,8],
+                [226,8,8],
+                [226,8,8],
+                [225,8,8],
+                [225,8,8],
+                [224,16,16],
+        ]
+//        示例曲目小星星1
+        var littlestar1=[
+            [117,16,16,1],
+            [117,16,16,1],
+            [120,16,16,1],
+            [120,16,16,1],
+            [121,16,16,1],
+            [121,16,16,1],
+            [120,32,32,1],
+
+            [119,16,16,1],
+            [119,16,16,1],
+            [227,16,16,1],
+            [227,16,16,1],
+            [118,16,16,1],
+            [118,16,16,1],
+            [117,32,32,1],
+
+            [120,16,16,1],
+            [120,16,16,1],
+            [119,16,16,1],
+            [119,16,16,1],
+            [227,16,16,1],
+            [227,16,16,1],
+            [118,32,32,1],
+
+            [120,16,16,1],
+            [120,16,16,1],
+            [119,16,16,1],
+            [119,16,16,1],
+            [227,16,16,1],
+            [227,16,16,1],
+            [118,32,32,1],
+
+            [117,16,16,1],
+            [117,16,16,1],
+            [120,16,16,1],
+            [120,16,16,1],
+            [121,16,16,1],
+            [121,16,16,1],
+            [120,32,32,1],
+
+            [119,16,16,1],
+            [119,16,16,1],
+            [227,16,16,1],
+            [227,16,16,1],
+            [118,16,16,1],
+            [118,16,16,1],
+            [117,32,32,1],
+        ]
+//        示例曲目小星星00 C大调带伴奏
+        var littlestar00=[
+
+    [217,8,8],
+    [221,8,8],
+    [219,8,8],
+    [221,8,8],
+    [217,8,8],
+    [221,8,8],
+    [219,8,8],
+    [221,8,8],
+
+
+    [217,8,0],
+    [224,8,8],
+
+    [221,8,0],
+    [224,8,8],
+
+    [219,8,0],
+    [228,8,8],
+
+    [221,8,0],
+    [228,8,8],
+
+    [217,8,0],
+    [229,8,8],
+
+    [221,8,0],
+    [229,8,8],
+
+    [219,8,0],
+    [228,16,8],
+    [221,8,8],
+
+    [217,8,0],
+    [227,8,8],
+
+    [221,8,0],
+    [227,8,8],
+
+    [219,8,0],
+    [226,8,8],
+
+    [221,8,0],
+    [226,8,8],
+
+    [217,8,0],
+    [225,8,8],
+
+    [221,8,0],
+    [225,8,8],
+
+    [219,8,0],
+    [224,16,8],
+    [221,8,8],
+
+
+    [217,8,0],
+    [228,8,8],
+
+    [221,8,0],
+    [228,8,8],
+
+    [219,8,0],
+    [227,8,8],
+
+    [221,8,0],
+    [227,8,8],
+
+    [217,8,0],
+    [226,8,8],
+
+    [221,8,0],
+    [226,8,8],
+
+    [219,8,0],
+    [225,16,8],
+    [221,8,8],
+
+
+    [217,8,0],
+    [228,8,8],
+
+    [221,8,0],
+    [228,8,8],
+
+    [219,8,0],
+    [227,8,8],
+
+    [221,8,0],
+    [227,8,8],
+
+    [217,8,0],
+    [226,8,8],
+
+    [221,8,0],
+    [226,8,8],
+
+    [219,8,0],
+    [225,16,8],
+    [221,8,8],
+
+
+    [217,8,0],
+    [224,8,8],
+
+    [221,8,0],
+    [224,8,8],
+
+    [219,8,0],
+    [228,8,8],
+
+    [221,8,0],
+    [228,8,8],
+
+    [217,8,0],
+    [229,8,8],
+
+    [221,8,0],
+    [229,8,8],
+
+    [219,8,0],
+    [228,16,8],
+    [221,8,8],
+
+    [217,8,0],
+    [227,8,8],
+
+    [221,8,0],
+    [227,8,8],
+
+    [219,8,0],
+    [226,8,8],
+
+    [221,8,0],
+    [226,8,8],
+
+    [217,8,0],
+    [225,8,8],
+
+    [221,8,0],
+    [225,8,8],
+
+    [219,8,0],
+    [224,16,8],
+    [221,8,8],
+
+    [217,16,0],
+    [219,16,0],
+    [221,16,0],
+
+]
+
+
+//        初始化
+        initAudio();
+        initKey();
+//        创建场景
+        var scene=new THREE.Scene();
+//        给场景设置背景
+        scene.background = new THREE.CubeTextureLoader()
+                .setPath( 'MilkyWay/' )
+                .load( [ 'dark-s_px.jpg', 'dark-s_nx.jpg', 'dark-s_py.jpg', 'dark-s_ny.jpg', 'dark-s_pz.jpg', 'dark-s_nz.jpg' ] );
+
+//        创建灯光
+        var ambientLight=new THREE.AmbientLight(0xffffff);
+        scene.add(ambientLight);
+        var pointlight=new THREE.PointLight(0xffffff);
+        pointlight.position.set(500,500,500);
+        scene.add(pointlight);
+//        创建照相机
+        var camera=new THREE.PerspectiveCamera(45,window.innerWidth/window.innerHeight,1,5000);
+        camera.position.set(0,100,160);
+        camera.lookAt(scene.position);
+//        创建渲染器
+        var renderer= new THREE.WebGLRenderer();
+        renderer.setClearColor(0xf0f0f0);
+        renderer.setSize(window.innerWidth,window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+//        渲染函数
+        function render() {
+
+            for ( var i = 0, il = birds.length; i < il; i++ ) {
+
+                boid = boids[ i ];
+                boid.setNeighborhoodRadius(neighborhoodRadius);
+                boid.setGoal(birdsGoal)
+                boid.run( boids );
+                boid.avoidPoint(birdsGoal,5);
+
+                bird = birds[ i ];
+                bird.position.copy( boids[ i ].position );
+                color = bird.material.color;
+                bird.rotation.y = Math.atan2( - boid.velocity.z, boid.velocity.x );
+                bird.rotation.z = Math.asin( boid.velocity.y / boid.velocity.length() );
+                bird.phase = ( bird.phase + ( Math.max( 0, bird.rotation.z ) + 0.1 )  ) % 62.83;
+                bird.geometry.vertices[ 5 ].y = bird.geometry.vertices[ 4 ].y = Math.sin( bird.phase ) * 5;
+            }
+            if(neighborhoodRadius<200)
+            {
+                neighborhoodRadius+=Math.random()*2;
+            }
+            if(neighborhoodRadius>100)
+            {
+                birdsGoal=null;
+            }
+            renderer.render(scene,camera);
+        }
+//        初始化飞鸟
+        initBirds();
+
+//        创建控制器
+        var control=new THREE.OrbitControls(camera);
+        control.addEventListener('change',render);
+//        动画控制函数
+        function animate() {
+
+            stats.begin();
+            requestAnimationFrame(animate);
+            renderWaterfallCubes();
+            render();
+            stats.end();
+        }
+        animate();
+//        监听窗口大小改变
+        window.addEventListener('resize',onWindowResize,false);
+        function onWindowResize() {
+            camera.aspect=window.innerWidth/window.innerHeight;
+            camera.updateProjectionMatrix();
+
+            renderer.setSize(window.innerWidth,window.innerHeight);
+            render();
+        }
+//        导入带材质的钢琴
+        var onProgress=function (xhr) {
+            if(xhr.lengthComputable){
+                var persentComplete=xhr.loaded/xhr.total*100;
+                console.log(Math.round(persentComplete,2)+'%downloaded');
+            }
+        };
+        var onError=function (xhr) {
+            console.log('fail to load mtl');
+        };
+        var mtlLoader=new THREE.MTLLoader();
+        mtlLoader.load('PianoThree/PianoThree.mtl',function (objMtl) {
+            var objLoader=new THREE.OBJLoader();
+            objLoader.setMaterials(objMtl);
+            objLoader.load('PianoThree/PianoThree.obj',function (obj) {
+                obj.scale.set(0.2,0.2,0.2);
+                obj.position.y=obj.position.y-147;
+                obj.position.z=obj.position.z-115;
+                scene.add(obj);
+                objects.push(obj);
+            })
+        },onProgress,onError);
+//        绘制白琴键
+        var whiteKeyNum=201;
+
+        while(whiteKeyNum<=252){
+            wKey=new THREE.Mesh(
+                   new THREE.myBoxGeometry(whiteKeyWidth,whiteKeyHeight,whiteKeyDepth),
+                 new THREE.MeshBasicMaterial({color:0xffffff}));//新建一个白键
+
+            var edges = new THREE.EdgesHelper( wKey, 0xa0a0a0 );//给白键加一个边框
+            scene.add(wKey);//将白键追加到场景中
+            scene.add(edges);//将白键的边框加到场景中
+            whiteKeysEdges.push(edges);//将白键的边框加到白键边框数组中
+            objects.push(wKey);//将白键加到可被点击的物体数组中
+            whiteKeys.push(wKey);//加入白键数组中
+            wKey.num=whiteKeyNum; //设置琴键序号
+            wKey.kind='whiteKey';//设置琴键类型为白键
+            whiteKeyNum+=1; //下一个白键的序号
+            wKey.position.x=px;//白键x坐标
+            wKey.position.y=py;//白键y坐标
+            wKey.position.z=pz;//白键z坐标
+            px+=whiteKeyWidth+0.1; //下一个白键横坐标位置 0.1的琴键间隙
+        }
+
+        // //绘制黑琴键
+        var px2=blackKeyStartPosition;
+        var py2=py+2;
+        var pz2=pz-5;
+        var blackKeyNum=101;
+
+        wKey=new THREE.Mesh(new THREE.BoxGeometry(
+                blackKeyWidth,blackKeyHeight,blackKeyDepth),
+                new THREE.MeshLambertMaterial({color:0x000000}));
+        scene.add(wKey);
+        objects.push(wKey);//将黑键加到可被点击的物体数组中
+        blackKeys.push(wKey);//加入黑键数组中
+        wKey.num=blackKeyNum;
+        wKey.kind='blackKey';//设置琴键类型为黑键
+        blackKeyNum+=1;
+        wKey.position.x=px2;
+        wKey.position.y=py2;
+        wKey.position.z=pz2;
+        px2+=whiteKeyWidth+0.1;
+        px2+=whiteKeyWidth+0.1;
+
+        for (var i = 7-1; i >= 0; i--) {
+            for (var j = 1; j<=5; j++) {
+                wKey=new THREE.Mesh(new THREE.BoxGeometry(
+                        blackKeyWidth,blackKeyHeight,blackKeyDepth),
+                        new THREE.MeshLambertMaterial({color:0x000000}));
+                scene.add(wKey);
+                wKey.num=blackKeyNum;
+                blackKeyNum+=1;
+                wKey.kind='blackKey';//设置琴键类型为黑键
+                objects.push(wKey);//将黑键加到可被点击的物体数组中
+                blackKeys.push(wKey);//加入黑键数组中
+                wKey.position.x=px2;
+                wKey.position.y=py2;
+                wKey.position.z=pz2;
+                px2+=whiteKeyWidth+0.1;
+                if(j==2||j==5){
+                    px2+=whiteKeyWidth+0.1;
+                }
+            };
+        }
+//        监听事件
+
+        var raycaster=new THREE.Raycaster();
+        var mouse=new THREE.Vector2();
+        document.addEventListener('mousedown',onMouseDown,false);//监听鼠标按下事件
+        document.addEventListener('mouseup',onMouseUp,false);//监听鼠标抬起事件
+        document.addEventListener('mousemove',onMouseMove,false);//监听鼠标移动事件
+
+//        监听鼠标按下事件函数
+        function onMouseDown (event) {
+            event.preventDefault();
+            if(keyboardSelfDefining==1)//如果正在进行鼠标自定义
+            {
+                keyboardSelfDefindingOnMouseDown(event);
+            }
+            else if(waterfallCubes.length>0&&waterfallCubesWriting==0)//若正在播放瀑布流
+            {
+                waterfallOnMouseDown(event);
+            }
+            else
+            {
+                playPianoOnMouseDown(event);
+            }
+
+        }
+//        监听鼠标抬起事件函数
+        function onMouseUp (event) {
+            event.preventDefault();
+            mousedown=0;//反映鼠标没有按下
+            var knum;
+            if(keyboardSelfDefining==1)//如果正在自定义按键
+            {
+                ;//不做任何处理
+            }
+            else if(KeyNum)
+            {
+
+                if(staveIng==1)//如果五线谱教学模式开启
+                {
+                    staveKeyUp(KeyNum);
+                }
+                if(KeyKind=='whiteKey')
+                {
+                    knum=KeyNum-201;//根据琴键序号KeyNum查找白键序号
+                    whiteKeys[knum].material.color.setHex(0xffffff);//恢复白键原来的颜色
+                    if(numberedMusicalNotationTeaching==1)//如果教学模式开启
+                    {
+                        fade(whiteKeyPlanes[knum],10);
+                    }
+                }
+                else if(KeyKind=='blackKey')
+                {
+                    knum=KeyNum-101;//根据琴键序号KeyNum查找黑键序号
+                    blackKeys[knum].material.color.setHex(0x000000);//恢复黑键原来的颜色
+                    if(numberedMusicalNotationTeaching==1)//如果教学模式开启
+                    {
+                        fade(blackKeyPlanes[knum],10);
+                    }
+                }
+                else
+                {
+                }
+
+            }
+            else if(KeyKind=='waterfallButton')
+            {
+                waterfallButton.material.color.setHex(0xffffff);
+            }
+            else
+            {
+            }
+            render();
+            mouseup=1;
+            control.enabled=true;//开启控制器
+        }
+
+//        监听鼠标移动事件函数
+        function onMouseMove (event) {
+
+            event.preventDefault();
+
+            if(keyboardSelfDefining==1)//正在自定义琴键
+            {
+                ;//不作任何处理
+            }
+            else if(mousedown==1)
+            {
+                //将屏幕像素坐标转化成camare坐标
+                mouse.x = ( event.clientX / renderer.domElement.clientWidth ) * 2 - 1;
+                mouse.y = - ( event.clientY / renderer.domElement.clientHeight ) * 2 + 1;
+
+                raycaster.setFromCamera(mouse,camera);//mouse是鼠标的二维坐标，camera是射线起点处的相机，即把射线起点设置在camera的位置
+                var intersects=raycaster.intersectObjects(objects);//objects是要被判断是否被射线穿过的物体们，objects是个数组，下标越小离射线起点越近
+                if(intersects.length>0)
+                {
+                    //是琴键 并且是有滑动到了另一个琴键上
+                    if(intersects[0].object.num && (intersects[0].object.num!=KeyNum)&&intersects[0].object.kind=='whiteKey'||intersects[0].object.kind=='blackKey')
+                    {
+                        //处理前一个琴键。恢复颜色
+                        if(mouseup==0)//如果mouseup==1 则无需处理
+                        {
+                            if(KeyKind=='whiteKey')
+                            {
+                                knum=KeyNum-201;
+                                whiteKeys[knum].material.color.setHex(0xffffff);
+                                if(numberedMusicalNotationTeaching==1)//如果教学模式开启
+                                {
+                                    fade(whiteKeyPlanes[knum],10);}
+                            }
+                            else if(KeyKind=='blackKey')
+                            {
+                                knum=KeyNum-101;
+                                blackKeys[knum].material.color.setHex(0x000000);
+                                if(numberedMusicalNotationTeaching==1)//如果教学模式开启
+                                {
+                                    fade(blackKeyPlanes[knum],10);
+                                }
+                            }
+                            else
+                            {
+                                ;
+                            }
+                            if(staveIng==1)//如果五线谱教学模式开启
+                            {
+                                staveKeyUp(KeyNum)
+                            }
+                        }
+
+                        //处理现在的琴键，播放声音，改变颜色
+                        if(intersects[0].object.kind=='whiteKey'||intersects[0].object.kind=='blackKey')
+                        {
+                            control.enabled=false;
+                            intersects[0].object.material.color.setHex(0xa0a0a0);
+                            if(intersects[0].object.num)
+                            {
+                                playAudio(intersects[0].object.num);//播放对应序号琴键的声音
+                                if(numberedMusicalNotationTeaching==1)//如果简谱教学模式开启
+                                {
+                                    showPlane(intersects[0].object.num)
+                                }
+
+                                if(staveIng==1)//如果五线谱教学模式开启
+                                {
+                                    staveKeyDown(intersects[0].object.num)
+                                }
+                            }
+                            render();
+                        }
+                        else
+                        {
+                            intersects[0].object.material.color.setHex(Math.random()*0xffffff);
+                        }
+                        KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                        KeyNum=intersects[0].object.num;//记录当前序号
+                        if(waterfallCubes.length>0&&waterfallCubesWriting==0)//瀑布流开始播放的标志
+                        {
+                            if(waterfallCubesMode==1||waterfallCubesMode==2)//评分模式 引导练习模式 都需要将点击的琴键记录
+                            {
+                                waterfallClickedAmount++;
+                                if(KeyKind=='whiteKey')
+                                {
+                                    waterfallJudgings.push(whiteKeys[KeyNum-201]);
+                                }
+                                else if(KeyKind=='blackKey')
+                                {
+                                    waterfallJudgings.push(blackKeys[KeyNum-101]);
+                                }
+                            }
+                        }
+                    }
+                    else//不是琴键
+                    {
+                        ;
+                    }
+
+                }
+            }
+        }
+//        音频初始化
+        function initAudio()
+        {
+            for(var i=101;i<=136;i++)
+            {
+                var audio=document.createElement("audio");
+                audio.id='myaudio'+i;
+                document.body.appendChild(audio);
+                var qianzhui='pianoKey/';
+                var houzhui='.mp3';
+                var source=qianzhui+i+houzhui;
+                audio.src=source;
+            }
+            for(var i=201;i<=252;i++)
+            {
+                var audio=document.createElement("audio");
+                audio.id='myaudio'+i;
+                document.body.appendChild(audio);
+                var qianzhui='pianoKey/';
+                var houzhui='.mp3';
+                var source=qianzhui+i+houzhui;
+                audio.src=source;
+            }
+            for(var i=301;i<=336;i++)
+            {
+                var audio=document.createElement("audio");
+                audio.id='myaudio'+i;
+                document.body.appendChild(audio);
+                var qianzhui='pianoKey/';
+                var houzhui='.mp3';
+                var j=i-200;
+                var source=qianzhui+j+houzhui;
+                audio.src=source;
+            }
+            for(var i=401;i<=452;i++)
+            {
+                var audio=document.createElement("audio");
+                audio.id='myaudio'+i;
+                document.body.appendChild(audio);
+                var qianzhui='pianoKey/';
+                var houzhui='.mp3';
+                var j=i-200;
+                var source=qianzhui+j+houzhui;
+                audio.src=source;
+            }
+        }
+//        播放音频函数
+        function playAudio ( name) {
+            repulseBirdByKey(name);
+            aname='myaudio'+name;
+            var myaudio=document.getElementById(aname);
+            myaudio.stop();//如果原先已经在播放中，先结束播放
+            myaudio.play();
+        }
+//        瀑布流之播放音频函数
+        function waterfallPlayAudio ( name)
+        {
+            repulseBirdByKey(name);
+            var name1=name+200;
+            aname='myaudio'+name1;
+            var myaudio=document.getElementById(aname);
+            myaudio.stop();//如果原先已经在播放中，先结束播放
+            myaudio.play();
+        }
+//        结束音频播放函数
+        HTMLAudioElement.prototype.stop = function()
+        {
+            this.pause();
+            this.currentTime = 0.0;
+        }
+//        停止播放音频函数
+        function stopAudio ( name) {
+            aname='myaudio'+name;
+            if(name<10)
+                name='0'+name;
+            var myaudio=document.getElementById(aname);
+            myaudio.stop();
+        }
+
+//        给琴键添加键盘按键对应效果
+
+        document.addEventListener('keydown',onKeyDown,false);
+        document.addEventListener('keyup',onKeyUp,false);
+//        键盘按键与琴键的对应关系初始化
+        function initKey () {
+            var i;
+            for(i=0;i<300;i++)
+            {
+                keyFunction[i]=0;
+            }
+            // keyFunction[键值]=对应音频（琴键）序号;
+            // 第一行按键
+            keyFunction[49]=233;// ! 和 1 按键
+            keyFunction[50]=234;// @ 和 2 按键
+            keyFunction[51]=124;// # 和 3 按键
+            keyFunction[52]=235;// $ 和 4 按键
+            keyFunction[53]=125;// % 和 5 按键
+            keyFunction[54]=236;// ^ 和 6 按键
+            keyFunction[55]=126;// & 和 7 按键
+            keyFunction[56]=237;// * 和 8 按键
+            keyFunction[57]=238;// ( 和 9 按键
+            keyFunction[48]=127;// ) 和 0 按键
+            keyFunction[189]=239;// _ 和 - 按键
+            keyFunction[187]=128;// + 和 = 按键
+            keyFunction[8]=240;// backspace 按键
+
+            //第二行按键
+            keyFunction[81]=114;//Q
+            keyFunction[87]=115;//W
+            keyFunction[69]=116;//E
+            keyFunction[82]=224;//R
+            keyFunction[84]=117;//T
+            keyFunction[89]=118;//Y
+            keyFunction[85]=226;//U
+            keyFunction[73]=119;//I
+            keyFunction[79]=120;//O
+            keyFunction[80]=121;//P
+            keyFunction[219]=231;// { 和 [ 按键
+            keyFunction[221]=122;// } 和 ] 按键
+            keyFunction[220]=123;// | 和 \ 按键
+
+            //第三行按键
+            keyFunction[65]=221;//A
+            keyFunction[83]=222;//S
+            keyFunction[68]=223;//D
+            keyFunction[70]=224;//F
+            keyFunction[71]=225;//G
+            keyFunction[72]=226;//H
+            keyFunction[74]=227;//J
+            keyFunction[75]=228;//K
+            keyFunction[76]=229;//L
+            keyFunction[186]=230;//分号按键
+            keyFunction[222]=231;//单引号按键
+            keyFunction[13]=232;//回车键
+
+            //第四行按键
+            keyFunction[90]=110;//Z
+            keyFunction[88]=215;//X
+            keyFunction[67]=111;//C
+            keyFunction[86]=216;//V
+            keyFunction[66]=217;//B
+            keyFunction[78]=112;//N
+            keyFunction[77]=218;//M
+            keyFunction[188]=113;// < 和 , 按键
+            keyFunction[190]=219;// > 和 . 按键
+            keyFunction[191]=220;// ? 和 / 按键
+        }
+//        监听键盘按键的处理函数
+        function onKeyDown (event) {
+            var i=0;
+            var num;
+            kbnum=event.keyCode;
+            if(kbnum==17){
+                return;
+            }
+            if(keyboardkeyDown[kbnum]==1)
+            {
+                ;
+            }
+            else if(keyboardSelfDefining==1)//正在自定义琴键
+            {
+                if(keyboardSelfDefineChoosed==1)//已经选中要定义的琴键
+                {
+                    if(keyFunction[keyFunction[kbnum]==0])//如果没有定义过该按键
+                    {
+                        console.log('can not self-define this keyboard key, please choose an other one');//
+                    }
+                    else
+                    {
+                        ;//修改键盘按键提示图片
+                        if(keyFunction[kbnum]!=-1&&keyFunction[kbnum]!=0)//如果该按键原来对应的琴键没有被置空 且按键是合法按键
+                        {
+                            if(keyFunction[kbnum]>200&&keyFunction[kbnum]<=252)//判断是按键原来对应的是白键
+                            {
+                                whiteKeyBoxs[keyFunction[kbnum]-201].material.map=THREE.ImageUtils.loadTexture('KeyboardPictures/null.png');// 按键原来对应的提示盒子设置空白图片
+//                            whiteKeyBoxs[keyFunction[kbnum]-201].material.color.setHex(0x99efef);
+                            }
+                            else if(keyFunction[kbnum]>100&&keyFunction[kbnum]<=136)
+                            {
+                                blackKeyBoxs[keyFunction[kbnum]-101].material.map=THREE.ImageUtils.loadTexture('KeyboardPictures/null.png');// 按键原来对应的提示盒子设置空白图片
+//                            whiteKeyBoxs[keyFunction[kbnum]-201].material.color.setHex(0x99efef);
+
+                            }
+                            console.log('set '+keyFunction[kbnum]+'KeyboardPicture null')
+                        }
+
+                            ;// 按键原来对应的提示盒子设置空
+//                        现在按下的琴键的原来对应的按键设置空
+                        for(i=0;i<300;i++)
+                        {
+                            if(keyFunction[i]==keyboardSelfDefineChoosedKey.num)
+                            {
+                                keyFunction[i]=-1;
+                            }
+                        }
+                        ;//按键现在对应的提示盒子设置图片
+
+                        keyFunction[kbnum]=keyboardSelfDefineChoosedKey.num;//修改键盘按键对应音频
+                        var pictureSrc='KeyboardPictures/'+kbnum+'.png';
+                        if(keyFunction[kbnum]>200&&keyFunction[kbnum]<=252)//判断是按键现在对应的是白键
+                        {
+                            whiteKeyBoxs[keyFunction[kbnum]-201].material.map=THREE.ImageUtils.loadTexture(pictureSrc);// 按键现在对应的提示盒子设置图片
+                            console.log('set whiteKeyBoxs '+keyFunction[kbnum]+''+pictureSrc);
+                        }
+                        else if(keyFunction[kbnum]>100&&keyFunction[kbnum]<=136)
+                        {
+                            blackKeyBoxs[keyFunction[kbnum]-101].material.map=THREE.ImageUtils.loadTexture(pictureSrc);// 按键现在对应的提示盒子设置图片
+                            console.log('set blackKeyBoxs '+keyFunction[kbnum]+''+pictureSrc);
+                        }
+                    }
+
+                }
+
+            }
+            else//自由弹奏
+            {
+                keynum=keyFunction[kbnum];//琴键序号
+                if(keynum!=0&&keynum!=-1)
+                {
+                    playAudio(keynum);
+
+                    if(numberedMusicalNotationTeaching==1)//如果简谱教学模式开启
+                    {
+                        showPlane(keyFunction[kbnum])
+                    }
+
+                    if(staveIng==1)//如果五线谱教学模式开启
+                    {
+                        staveKeyDown(keynum);
+                    }
+
+                    console.log('OnKeyDown playAudio '+keynum)
+                    if(keynum>200&&keynum<253)//白键变色
+                    {
+                        KeyBoardKeyKind='whiteKey';
+                        num=keynum-201;
+                        whiteKeys[num].material.color.setHex(0xa0a0a0);
+                    }
+                    else if(keynum>100&&keynum<137)//黑键变色
+                    {
+                        KeyBoardKeyKind='blackKey';
+                        num=keynum-101;
+                        blackKeys[num].material.color.setHex(0xa0a0a0);
+                    }
+                    if(waterfallCubesMode==1||waterfallCubesMode==2)//评分模式 引导练习模式 都需要将点击的琴键记录
+                    {
+                        waterfallClickedAmount++;
+                        if(KeyBoardKeyKind=='whiteKey')
+                        {
+                            waterfallJudgings.push(whiteKeys[num]);
+                        }
+                        else if(KeyBoardKeyKind=='blackKey')
+                        {
+                            waterfallJudgings.push(blackKeys[num]);
+                        }
+                    }
+
+                    render();
+
+                }
+                else
+                {
+                    // alert(i);
+                }
+
+            }
+            keyboardkeyDown[kbnum]=1;
+
+        }
+//        监听键盘按键抬起的处理函数
+        function onKeyUp (event) {
+            var i=0;
+            var num;
+            kbnum=event.keyCode;
+            keyboardkeyDown[kbnum]=0;//标志抬起
+            keynum=keyFunction[kbnum];//琴键序号
+            if(keynum!=0&&keynum!=-1)
+            {
+                if(keynum>200&&keynum<253)//白键变色
+                {
+                    KeyBoardKeyKind='whiteKey';
+                    num=keynum-201;
+                    whiteKeys[num].material.color.setHex(0xffffff);
+
+                    if(numberedMusicalNotationTeaching==1)//如果简谱教学模式开启
+                    {
+                        fade(whiteKeyPlanes[num],10)
+                    }
+                    if(staveIng==1)//如果五线谱教学模式开启
+                    {
+                        staveKeyUp(keynum)
+                    }
+                }
+                else if(keynum>100&&keynum<137)
+                {
+                    KeyBoardKeyKind='blackKey';
+                    num=keynum-101;
+                    blackKeys[num].material.color.setHex(0x000000);
+
+                    if(numberedMusicalNotationTeaching==1)//如果简谱教学模式开启
+                    {
+                        fade(blackKeyPlanes[num],10)
+                    }
+                    if(staveIng==1)//如果五线谱教学模式开启
+                    {
+                        staveKeyUp(keynum)
+                    }
+                }
+
+                render();
+            }
+            else
+            {
+                // alert(i);
+            }
+        }
+//        添加键盘按键提示方块
+        //添加白色琴键对应键盘按键提示方块
+        var whiteKeyPictureNum=201;//白色琴键对应键盘提示方块的编号
+        var wKeyBox;//白色琴键对应键盘提示方块
+        var px3=whiteKeyStartPosition;//左边第一个白色琴键对应键盘按键提示方块的x坐标
+        var py3=py-5;//白色琴键对应键盘提示方块的y坐标
+        var pz3=pz+19;//白色琴键对应键盘提示方块的z坐标
+
+        for(whiteKeyPictureNum=201;whiteKeyPictureNum<=252;whiteKeyPictureNum++){
+            wKeyBox=new THREE.Mesh(
+            new THREE.BoxGeometry(whiteKeyWidth,whiteKeyWidth,whiteKeyWidth),
+            new THREE.MeshLambertMaterial({color:0x99efef,map:THREE.ImageUtils.loadTexture('KeyboardPictures/null.png')}));//新建一个白键按键提示盒子
+            wKeyBox.material.transparent=true;
+            scene.add(wKeyBox);//将白键按键提示盒子追加到场景中
+            objects.push(wKeyBox);//将白键按键提示盒子加到可被点击的物体数组中
+            whiteKeyBoxs.push(wKeyBox);//加入白键按键提示盒子数组中
+            wKeyBox.num=whiteKeyPictureNum; //设置白键按键提示盒子序号
+            wKeyBox.kind='whiteKeyBox';//设置琴键类型为白键按键提示盒子
+            wKeyBox.position.x=px3;//白键按键提示盒子x坐标
+            wKeyBox.position.y=py3;//白键按键提示盒子y坐标
+            wKeyBox.position.z=pz3;//白键按键提示盒子z坐标
+            px3+=whiteKeyWidth+0.1; //下一个白键横坐标位置 0.1的琴键间隙
+        }
+        //绘制黑琴键按键提示盒子
+        var px4=blackKeyStartPosition;//左边第一个黑色琴键按键提示盒子的x坐标
+        var py4=py+3.5+blackKeyWidth;
+        var pz4=pz-27.5;
+        var blackKeyBoxNum=101;
+        var bKeyBox;
+
+        bKeyBox=new THREE.Mesh(new THREE.BoxGeometry(
+        blackKeyWidth,blackKeyWidth,blackKeyWidth),
+        new THREE.MeshLambertMaterial({color:0x99efef,map:THREE.ImageUtils.loadTexture('KeyboardPictures/null.png')}));
+        scene.add(bKeyBox);
+        objects.push(bKeyBox);//将黑键按键提示盒子加到可被点击的物体数组中
+        blackKeyBoxs.push(bKeyBox);//加入黑键按键提示盒子数组中
+        bKeyBox.num=blackKeyBoxNum;
+        bKeyBox.kind='blackKeyBox';//设置琴键类型为黑键提示盒子
+        bKeyBox.material.transparent=true;
+        blackKeyBoxNum+=1;
+        bKeyBox.position.x=px4;
+        bKeyBox.position.y=py4;
+        bKeyBox.position.z=pz4;
+        px4+=whiteKeyWidth+0.1;
+        px4+=whiteKeyWidth+0.1;
+
+        for (var i = 7-1; i >= 0; i--)
+        {
+            for (var j = 1; j<=5; j++) {
+                bKeyBox=new THREE.Mesh(new THREE.BoxGeometry(
+                        blackKeyWidth,blackKeyWidth,blackKeyWidth),
+                        new THREE.MeshLambertMaterial({color:0x99efef,map:THREE.ImageUtils.loadTexture('KeyboardPictures/null.png')}));
+                scene.add(bKeyBox);
+                bKeyBox.num=blackKeyBoxNum;
+                blackKeyBoxNum+=1;
+                bKeyBox.kind='blackKeyBox';//设置琴键类型为黑键
+                objects.push(bKeyBox);//将黑键加到可被点击的物体数组中
+                blackKeyBoxs.push(bKeyBox);//加入黑键数组中
+                bKeyBox.material.transparent=true;
+                bKeyBox.position.x=px4;
+                bKeyBox.position.y=py4;
+                bKeyBox.position.z=pz4;
+                px4+=whiteKeyWidth+0.1;
+                if(j==2||j==5){
+                    px4+=whiteKeyWidth+0.1;
+                }
+            };
+        }
+        //        设置键盘按键提示盒子为彩色
+        function initKeyBoxsColor()
+        {
+            var i=0,j=0;
+            while(i<whiteKeyBoxs.length)
+            {
+                switch(j)
+                {
+                    case 0:whiteKeyBoxs[i].material.color.setHex(0x0044ff);break;//靛色
+                    case 1:whiteKeyBoxs[i].material.color.setHex(0x8b00ff);break;//紫色
+                    case 2:whiteKeyBoxs[i].material.color.setHex(0xff0000);break;//红色
+                    case 3:whiteKeyBoxs[i].material.color.setHex(0xff7f00);break;//橙色
+                    case 4:whiteKeyBoxs[i].material.color.setHex(0xffff00);break;//黄色
+                    case 5:whiteKeyBoxs[i].material.color.setHex(0x00cf00);break;//绿色
+                    case 6:whiteKeyBoxs[i].material.color.setHex(0x0088ff);break;//蓝色
+                }
+                j=(j+1)%7;
+                i++;
+            }
+            i=0;
+            j=0;
+            while(i<blackKeyBoxs.length)
+            {
+                switch(j)
+                {
+                    case 0:blackKeyBoxs[i].material.color.setHex(0x8b00ff);break;//紫色
+                    case 1:blackKeyBoxs[i].material.color.setHex(0xff0000);break;//红色
+                    case 2:blackKeyBoxs[i].material.color.setHex(0xff7f00);break;//橙色
+                    case 3:blackKeyBoxs[i].material.color.setHex(0xffff00);break;//黄色
+                    case 4:blackKeyBoxs[i].material.color.setHex(0x00cf00);break;//绿色
+                }
+                j=(j+1)%5;
+                i++;
+            }
+        }
+
+        //初始化白色琴键按键提示盒子的图片
+        function updateBoxsPicture() //键盘按键提示盒子图片更新
+        {
+            var boxImgName;//图片名字
+            var num;
+            for(var i=0;i<250;i++)
+            {
+                if(keyFunction[i]!=0)
+                {
+                    if(keyFunction[i]>=201&&keyFunction[i]<253)
+                    {
+                        boxImgName='KeyboardPictures/'+i+'.png';
+                        num=keyFunction[i]-201;
+                        whiteKeyBoxs[num].material.map=THREE.ImageUtils.loadTexture(boxImgName);
+                    }
+                    else if(keyFunction[i]>100&&keyFunction[i]<137)
+                    {
+                        boxImgName='KeyboardPictures/'+i+'.png';
+                        num=keyFunction[i]-101;
+                        blackKeyBoxs[num].material.map=THREE.ImageUtils.loadTexture(boxImgName);
+                    }
+                }
+            }
+        }
+        updateBoxsPicture();
+//        测试读写文件 不测了 chrom没法读写本地文件嘤嘤嘤
+//        测试小方块下落
+        waterfallButton=new THREE.Mesh(
+                new THREE.myBoxGeometry(20,20,20),
+                new THREE.MeshLambertMaterial({
+                    map:THREE.ImageUtils.loadTexture('ButtonPictures/playMusic.png'),
+                    color:0xffffff
+                }))
+        scene.add(waterfallButton);
+        waterfallButton.position.set(0,50,-54);
+        waterfallButton.kind='waterfallButton';
+        objects.push(waterfallButton);
+//        点击瀑布流播放/暂停按钮处理函数
+        function clickWaterfallButton()
+        {
+            if(waterfallButtonStop==0&&waterfallCubes.length==0&&waterfallCubesYouCanWrite==1)//没有播放瀑布流 也没有暂停音乐 可以写入音域
+            {
+                waterfallClickedAmount=0;
+                waterfallCorrectlyClickedAmount=0;
+                waterfallCubesAmount=0;
+                waterfallButton.material.map=THREE.ImageUtils.loadTexture('ButtonPictures/stopMusic.png')
+                playChoosedMusic()//播放选中的示例歌曲
+                waterfallButtonStop=0;
+            }
+            else if(waterfallButtonStop==0&&waterfallCubes.length)//瀑布流播放中 要暂停音乐
+            {
+                waterfallButton.material.map=THREE.ImageUtils.loadTexture('ButtonPictures/playMusic.png')
+                waterfallButtonStop=1;
+            }
+            else if(waterfallButtonStop==1)//瀑布流停止中
+            {
+                waterfallButton.material.map=THREE.ImageUtils.loadTexture('ButtonPictures/stopMusic.png')
+                waterfallButtonStop=0;
+            }
+        }
+//        瀑布流播放按钮函数
+        function playMusicByArray(array){
+            var x;
+            var beishu;
+            var xushu;
+            var waterfallcube;
+            if (waterfallCubesYouCanWrite==1)
+            {
+                for(i=0;i<array.length;i++)
+                {
+                    if(array[i][0]>200&&array[i][0]<=252)
+                    {
+                        waterfallcube=new THREE.Mesh(
+                                new THREE.myBoxGeometry(waterfallCubesWidth,waterfallCubesWidth,waterfallCubesWidth),
+                                new THREE.MeshLambertMaterial({color:0xffffff})
+                        );
+                        waterfallcube.kind='whiteKeyWaterfallCubes';
+                        x=whiteKeyStartPosition+(array[i][0]-201)*(whiteKeyWidth+0.1);
+                        x=x.toFixed(1);
+                        waterfallcube.position.set(x,starLine,pz+15);
+                        waterfallcube.material.map=THREE.ImageUtils.loadTexture('waterfallPitchPictures/'+array[i][0]+'.png');
+
+                    }
+                    else if(array[i][0]>100&&array[i][0]<=136)
+                    {
+                        waterfallcube=new THREE.Mesh(
+                                new THREE.myBoxGeometry(waterfallCubesWidth,waterfallCubesWidth,waterfallCubesWidth),
+                                new THREE.MeshLambertMaterial({color:0xffffff})
+                        );
+                        waterfallcube.kind='blackKeyWaterfallCubes';
+                        if(array[i][0]-101==0)
+                        {
+                            x=blackKeyStartPosition;
+                        }
+                        else{
+                            beishu=Math.floor((array[i][0]-101)/5);
+                            switch ((array[i][0]-101)%5)
+                            {
+                                case 1:xushu=2;break;
+                                case 2:xushu=3;break;
+                                case 3:xushu=5;break;
+                                case 4:xushu=6;break;
+                                case 0:xushu=0;break;
+                                default:console.log('err:waterfallCubesInitErr,num '+array[i][0]+' is not a black key num');break;
+                            }
+                            x=blackKeyStartPosition+(whiteKeyWidth+0.1)*(beishu*7+xushu);
+                            x=x.toFixed(1);
+                        }
+                        waterfallcube.position.set(x,starLine,pz);
+
+                        if(blackKeyMode==0)
+                        {
+                            waterfallcube.material.map=THREE.ImageUtils.loadTexture('waterfallPitchPictures/down'+array[i][0]+'.png');
+                        }
+                        else if(blackKeyMode==1)
+                        {
+                            waterfallcube.material.map=THREE.ImageUtils.loadTexture('waterfallPitchPictures/up'+array[i][0]+'.png');
+                        }
+                        waterfallcube.material.color.setHex(0x008080);
+                    }
+                    waterfallcube.waiting=array[i][2]*waterfallVelocity;
+                    waterfallcube.notelength=array[i][1]*waterfallVelocity;
+                    waterfallcube.correctlyclicked=0;
+                    waterfallCubes.push(waterfallcube);
+                    if(waterfallVisible==0)
+                    {
+                        waterfallcube.visible=false;
+                    }
+
+                }
+            }
+            waterfallNotesAmount=array.length;
+            waterfallCubesWriting=0;
+        }
+//        处理瀑布流按下白琴键事件
+        function waterfallWhiteKeysDown(whiteKeyObject)//
+        {
+            whiteKeyObject.material.color.setHex(0xa0a0a0);
+            if(waterfallCubesMode==0||waterfallCubesMode==1)
+            {
+                waterfallPlayAudio(whiteKeyObject.num);//播放对应音频
+            }
+            waterfallCubesDownWhiteKeys.push(whiteKeyObject);
+        }
+//        处理瀑布流离开白琴键事件
+        function waterfallWhiteKeysUp(whiteKeyObject)
+        {
+            whiteKeyObject.material.color.setHex(0xffffff);
+            console.log('whitekey '+whiteKeyObject.num+' set color 0xffffff');
+        }
+//        处理瀑布流按下黑琴键事件
+        function waterfallBlackKeysDown(blackKeyObject)//
+        {
+            blackKeyObject.material.color.setHex(0xa0a0a0);
+            if(waterfallCubesMode==0||waterfallCubesMode==1)
+            {
+                waterfallPlayAudio(blackKeyObject.num);//播放对应音频
+            }
+            waterfallCubesDownBlackKeys.push(blackKeyObject);
+        }
+//        处理瀑布流离开黑琴键事件
+        function waterfallBlackKeysUp(blackKeyObject)
+        {
+            blackKeyObject.material.color.setHex(0x000000);
+        }
+//         添加键盘自定义按钮
+        var keyboardSelfDefineCube=new THREE.Mesh(
+                new THREE.myBoxGeometry(20,20,20)
+                ,new THREE.MeshLambertMaterial({color:0xffffff,map:THREE.ImageUtils.loadTexture('ButtonPictures/keyboardSelfDefine.png')})
+        )
+        keyboardSelfDefineCube.position.set(30,py+50,pz-54);
+        scene.add(keyboardSelfDefineCube);
+        objects.push(keyboardSelfDefineCube);
+        keyboardSelfDefineCube.kind='keyboardSelfDefineCube';
+        function clickKeyboardSelfDefineButton()
+        {
+            if(keyboardSelfDefining==1)//如果正在进行键盘按键琴键自定义
+            {
+                keyboardSelfDefining=0;
+                keyboardSelfDefineCube.material.map=THREE.ImageUtils.loadTexture('ButtonPictures/keyboardSelfDefine.png');
+
+                if(keyboardSelfDefineChoosed==1)
+                {
+                    keyboardSelfDefineKeyUp(keyboardSelfDefineChoosedKey);
+                }
+                console.log('1')
+            }
+            else
+            {
+                keyboardSelfDefining=1;
+                keyboardSelfDefineCube.material.map=THREE.ImageUtils.loadTexture('ButtonPictures/endKeyboardSelfDefine.png');
+
+                if(keyboardSelfDefineChoosed==1)
+                {
+                    keyboardSelfDefineKeyUp(keyboardSelfDefineChoosedKey);
+                }
+                console.log('2')
+            }
+        }
+//        自定义键盘按键时，琴键按下
+        function keyboardSelfDefineKeyDown(key)
+        {
+            if(keyboardSelfDefineChoosed==1)
+            {
+                keyboardSelfDefineKeyUp(keyboardSelfDefineChoosedKey);
+            }
+            if(key.num>200&&key.num<=252)//白键
+            {
+                whiteKeys[key.num-201].material.color.setHex(0x8f0000);
+                playAudio(key.num);
+                keyboardSelfDefineChoosedKey=key;
+            }
+            else if(key.num>100&&key.num<=136)//黑键
+            {
+                blackKeys[key.num-101].material.color.setHex(0x8f0000);
+                playAudio(key.num);
+                keyboardSelfDefineChoosedKey=key;
+            }
+            keyboardSelfDefineChoosed=1;
+        }
+//        自定义键盘按键时，琴键抬起
+        function keyboardSelfDefineKeyUp(key)
+        {
+            if(key.num>200&&key.num<=252)//白键
+            {
+                whiteKeys[key.num-201].material.color.setHex(0xffffff);
+            }
+            else if(key.num>100&&key.num<=136)//黑键
+            {
+                blackKeys[key.num-101].material.color.setHex(0x000000);
+            }
+            ;
+        }
+//        自由弹奏时，监听鼠标按下事件
+        function playPianoOnMouseDown(event)
+        {
+            mouseup=0;
+            //将屏幕像素坐标转化成camare坐标
+            mouse.x = ( event.clientX / renderer.domElement.clientWidth ) * 2 - 1;
+            mouse.y = - ( event.clientY / renderer.domElement.clientHeight ) * 2 + 1;
+
+            raycaster.setFromCamera(mouse,camera);//mouse是鼠标的二维坐标，camera是射线起点处的相机，即把射线起点设置在camera的位置
+            var intersects=raycaster.intersectObjects(objects);//objects是要被判断是否被射线穿过的物体们，objects是个数组，下标越小离射线起点越近
+
+            if(intersects.length>0)//点击到了物体
+            {
+                if(intersects[0].object.kind=='whiteKey'||intersects[0].object.kind=='blackKey')//判断是否钢琴键
+                {
+                    control.enabled=false;//控制器关闭
+                    KeyKind=intersects[0].object.kind;//记录当前点击的琴键类型
+                    intersects[0].object.material.color.setHex(0xa0a0a0);//改变颜色
+                    if(intersects[0].object.num)//检查是否拥有num属性
+                    {
+                        KeyNum=intersects[0].object.num;//记录当前琴键序号
+                        playAudio(intersects[0].object.num);//播放对应音频
+                        console.log('自由弹奏琴键序号：'+intersects[0].object.num)
+                        if(numberedMusicalNotationTeaching==1)//如果简谱教学模式开启
+                        {
+                            showPlane(intersects[0].object.num)
+                        }
+                        if(staveIng==1)//如果五线谱教学模式开启
+                        {
+                            staveKeyDown(intersects[0].object.num)
+                        }
+                    }
+
+                }
+                else if(intersects[0].object.kind=='whiteKeyBox'||intersects[0].object.kind=='blackKeyBox')//点击到按键提示盒子
+                {
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.kind=='waterfallButton')//点击到waterfallButton
+                {
+                    clickWaterfallButton();
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.kind=='keyboardSelfDefineCube')//点击到了键盘自定义方块按钮
+                {
+                    clickKeyboardSelfDefineButton();
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.name=='birdButton')//点击到关闭/开启飞鸟按钮
+                {
+                    clickBirdButton();
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.name=='backButton')//点击到了返回按钮
+                {
+                    clickBackButton()
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.name=='keyboardRecoverButton')//点击到了琴键恢复初始设置按钮
+                {
+                    keyboardRecover();
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.name=='waterfallModesChooseButton')//点击到了瀑布流模式选择按钮
+                {
+                    clickWaterfallModesChooseButton();
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.name=='blackKeyModesChooseButton')//点击到了黑键模式选择按钮
+                {
+                    clickBlackKeyModesChooseButton();
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.name=='waterfallVelocityChooseButton')//点击到了瀑布流速度选择按钮
+                {
+                    clickWaterfallVelocityChooseButton();
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.name=='numberedMusicalNotationTeachingButton')//点击到了瀑布流速度选择按钮
+                {
+                    clickNumberedMusicalNotationTeachingButton();
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.name=='staveButton')//点击到了瀑布流速度选择按钮
+                {
+                    clickStaveButton();
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.name=='stavePlane')//点击到了瀑布流速度选择按钮
+                {
+                    staveIng=0;
+                    staveButton.material.map=THREE.ImageUtils.loadTexture('ButtonPictures/staveOpen.png')
+                    hideStave();
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.name=='waterfallMusicChooseButton')//点击到了示例音乐选择按钮
+                {
+                    clickWaterfallMusicChooseButton();
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else
+                {
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+
+            }
+            else//没有点击到可点击的物体
+            {
+            }
+            render();//渲染
+            mousedown=1;//反映鼠标已经按下
+        }
+//        播放瀑布流时监听鼠标按键按下
+        function waterfallOnMouseDown(event)
+        {
+            mouseup=0;
+            //将屏幕像素坐标转化成camare坐标
+            mouse.x = ( event.clientX / renderer.domElement.clientWidth ) * 2 - 1;
+            mouse.y = - ( event.clientY / renderer.domElement.clientHeight ) * 2 + 1;
+
+            raycaster.setFromCamera(mouse,camera);//mouse是鼠标的二维坐标，camera是射线起点处的相机，即把射线起点设置在camera的位置
+            var intersects=raycaster.intersectObjects(objects);//objects是要被判断是否被射线穿过的物体们，objects是个数组，下标越小离射线起点越近
+
+            if(intersects.length>0)//点击到了物体
+            {
+                if(intersects[0].object.kind=='whiteKey'||intersects[0].object.kind=='blackKey')//判断是否钢琴键
+                {
+                    control.enabled=false;//控制器关闭
+                    KeyKind=intersects[0].object.kind;//记录当前点击的琴键类型
+                    intersects[0].object.material.color.setHex(0xa0a0a0);//改变颜色
+                    if(intersects[0].object.num)//检查是否拥有num属性
+                    {
+                        KeyNum=intersects[0].object.num;//记录当前琴键序号
+                        playAudio(intersects[0].object.num);//播放对应音频
+                        console.log('瀑布流琴键序号：'+intersects[0].object.num)
+                    }
+                    if(waterfallButtonStop==0)//如果没有暂停瀑布流 则记录琴键
+                    {
+                        if(waterfallCubesMode==1||waterfallCubesMode==2)//评分模式 引导练习模式 都需要将点击的琴键记录
+                        {
+                            waterfallClickedAmount++;
+                            if(KeyKind=='whiteKey')
+                            {
+                                waterfallJudgings.push(whiteKeys[KeyNum-201]);
+                            }
+                            else if(KeyKind=='blackKey')
+                            {
+                                waterfallJudgings.push(blackKeys[KeyNum-101]);
+                            }
+                        }
+                    }
+
+                }
+                else if(intersects[0].object.kind=='whiteKeyBox'||intersects[0].object.kind=='blackKeyBox')//点击到按键提示盒子
+                {
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.kind=='waterfallButton')//点击到waterfallButton
+                {
+                    clickWaterfallButton();
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.kind=='keyboardSelfDefineCube')//点击到了键盘自定义方块按钮
+                {
+                    clickKeyboardSelfDefineButton();
+                        KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                        KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.name=='birdButton')//点击到关闭/开启飞鸟按钮
+                {
+                    clickBirdButton();
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.name=='backButton')//点击到了返回按钮
+                {
+                    clickBackButton()
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.name=='keyboardRecoverButton')//点击到了琴键恢复初始设置按钮
+                {
+                    keyboardRecover();
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.name=='waterfallCloseButton')//点击到了琴键恢复初始设置按钮
+                {
+                    closeWaterfall();
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.name=='numberedMusicalNotationTeachingButton')//点击到了瀑布流速度选择按钮
+                {
+                    clickNumberedMusicalNotationTeachingButton();
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.name=='stavePlane')//点击到了瀑布流速度选择按钮
+                {
+                    staveIng=0;
+                    staveButton.material.map=THREE.ImageUtils.loadTexture('ButtonPictures/staveOpen.png')
+
+                    hideStave();
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.name=='waterfallMusicChooseButton')//点击到了示例音乐选择按钮
+                {
+                    clickWaterfallMusicChooseButton();
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else
+                {
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+
+            }
+            else//没有点击到物体
+            {
+                ;
+            }
+            render();//渲染
+            mousedown=1;//反映鼠标已经按下
+        }
+//        自定义琴键按键时，监听鼠标按键按下
+        function keyboardSelfDefindingOnMouseDown(event)
+        {
+            mouseup=0;
+            //将屏幕像素坐标转化成camare坐标
+            mouse.x = ( event.clientX / renderer.domElement.clientWidth ) * 2 - 1;
+            mouse.y = - ( event.clientY / renderer.domElement.clientHeight ) * 2 + 1;
+
+            raycaster.setFromCamera(mouse,camera);//mouse是鼠标的二维坐标，camera是射线起点处的相机，即把射线起点设置在camera的位置
+            var intersects=raycaster.intersectObjects(objects);//objects是要被判断是否被射线穿过的物体们，objects是个数组，下标越小离射线起点越近
+
+            if(intersects.length>0)//点击到了物体
+            {
+                if(intersects[0].object.kind=='whiteKey'||intersects[0].object.kind=='blackKey')//判断是否钢琴键
+                {
+                    control.enabled=false;//控制器关闭
+                    keyboardSelfDefineKeyDown(intersects[0].object);
+                    console.log('自定义琴键弹奏琴键序号'+intersects[0].object.num)
+                }
+                else if(intersects[0].object.kind=='whiteKeyBox'||intersects[0].object.kind=='blackKeyBox')//点击到按键提示盒子
+                {
+                   if(keyboardSelfDefineChoosed==1)
+                   {
+                       keyboardSelfDefineChoosed=0;
+                       keyboardSelfDefineKeyUp(keyboardSelfDefineChoosedKey);
+                   }
+                }
+                else if(intersects[0].object.kind=='waterfallButton')//点击到waterfallButton
+                {
+                    if(keyboardSelfDefineChoosed==1)
+                    {
+                        keyboardSelfDefineChoosed=0;
+                        keyboardSelfDefineKeyUp(keyboardSelfDefineChoosedKey);
+                    }
+                }
+                else if(intersects[0].object.kind=='keyboardSelfDefineCube')//点击到了键盘自定义方块按钮
+                {
+                    clickKeyboardSelfDefineButton();
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.name=='birdButton')//点击到关闭/开启飞鸟按钮
+                {
+                    clickBirdButton();
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.name=='backButton')//点击到了返回按钮
+                {
+                    clickBackButton()
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.name=='keyboardRecoverButton')//点击到了琴键恢复初始设置按钮
+                {
+                    keyboardRecover();
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.name=='waterfallModesChooseButton')//点击到了瀑布流模式选择按钮
+                {
+                    clickWaterfallModesChooseButton();
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.name=='blackKeyModesChooseButton')//点击到了黑键模式选择按钮
+                {
+                    clickBlackKeyModesChooseButton();
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.name=='waterfallVelocityChooseButton')//点击到了瀑布流速度选择按钮
+                {
+                    clickWaterfallVelocityChooseButton();
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.name=='numberedMusicalNotationTeachingButton')//点击到了瀑布流速度选择按钮
+                {
+                    clickNumberedMusicalNotationTeachingButton();
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.name=='stavePlane')//点击到了瀑布流速度选择按钮
+                {
+                    staveIng=0;
+                    staveButton.material.map=THREE.ImageUtils.loadTexture('ButtonPictures/staveOpen.png')
+
+                    hideStave();
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+                else if(intersects[0].object.name=='waterfallMusicChooseButton')//点击到了示例音乐选择按钮
+                {
+                    clickWaterfallMusicChooseButton();
+                    KeyKind=intersects[0].object.kind;//记录当前点击的类型
+                    KeyNum=intersects[0].object.num;//记录当前序号
+                }
+            }
+            else//没有点击到物体
+            {
+                if (keyboardSelfDefineChoosed == 1) {
+                    keyboardSelfDefineChoosed = 0;
+                    keyboardSelfDefineKeyUp(keyboardSelfDefineChoosedKey);
+                }
+            }
+            render();//渲染
+            mousedown=1;//反映鼠标已经按下
+        }
+
+        function pianoKeyDown(i)
+        {
+            if(i>200&&i<=252)
+            {
+                whiteKeys[i-201].color.setHex(0xe0e0e0);
+                playAudio(i);
+            }
+            else if(i>100&&i<=136)
+            {
+                blackKeys[i-101].setHex(0xe0e0e0);
+                playAudio(i);
+            }
+        }
+
+//        初始化键盘按键是否按下的标志数组
+        function initKeyboardKeyDown()
+        {
+            var i=0;
+            for(i=0;i<300;i++)
+            {
+                keyboardkeyDown[i]=0;
+            }
+        }
+        initKeyboardKeyDown();
+
+        //初始化飞鸟
+        function initBirds()
+        {
+            birds = [];
+            boids = [];
+
+            for ( var i = 0; i < 100; i ++ ) {
+                boid = boids[ i ] = new Boid();
+                boid.position.x = Math.random() * 400 - 200;
+                boid.position.y = Math.random() * 400 - 200;
+                boid.position.z = Math.random() * 400 - 200;
+                boid.velocity.x = Math.random() * 2 - 1;
+                boid.velocity.y = Math.random() * 2 - 1;
+                boid.velocity.z = Math.random() * 2 - 1;
+                boid.setAvoidWalls( true );
+                boid.setWorldSize( 500, 500, 400 );
+                bird = birds[ i ] = new THREE.Mesh( new Bird(), new THREE.MeshLambertMaterial( { color: 0xEE3A8C, side: THREE.DoubleSide } ) );
+                bird.verticesNeedUpdate=true;
+                bird.elementsNeedUpdate=true;
+                bird.phase = Math.floor( Math.random() * 62.83 );
+                scene.add( bird );
+            }
+
+
+            renderer.setPixelRatio( window.devicePixelRatio );
+
+        }
+
+
+        function repulseBirdByKey(num)
+        {
+            var vector = new THREE.Vector3( 0, 0, 0 );
+            birdsGoal= new THREE.Vector3(0,30,0);
+
+            if(num>200&&num<=252)
+            {
+                vector.x=num;
+                vector.y=Math.random();
+                birdsGoal.x=whiteKeys[num-201].position.x;
+                birdsGoal.y=whiteKeyStavePositionY[num-201];
+                birdsGoal.z=Math.random()*20-10;
+            }
+            else if(num>100&&num<=136)
+            {
+                vector.x=num;
+                vector.y=Math.random();
+                birdsGoal.x=whiteKeys[num-101].position.x;
+                birdsGoal.z=Math.random()*20-10;
+            }
+            for ( var i = 0, il = boids.length; i < il; i++ ) {
+
+                if ( Math.random() > 0.6 ) continue;
+                boid = boids[ i ];
+
+                vector.z = boid.position.z;
+                boid.repulse( vector );
+                boid.setGoal(birdsGoal);
+            }
+            if(neighborhoodRadius>20)
+            {
+                neighborhoodRadius=Math.floor(neighborhoodRadius*waterfallVelocity/(waterfallVelocity+1));
+            }
+
+        }
+
+        //        关闭/开启飞鸟按钮
+        birdButton=new THREE.Mesh(
+                new THREE.BoxGeometry(20,20,20),
+                new THREE.MeshLambertMaterial({color:0xffffff,map:THREE.ImageUtils.loadTexture('ButtonPictures/closeBirds.png')}));
+        birdButton.position.set(60,25,-54);
+        birdButton.name='birdButton';
+        scene.add(birdButton);
+        objects.push(birdButton);
+        //    点击birdButton的处理函数
+        function clickBirdButton()
+        {
+            if(birdClosed==0)
+            {
+                birdButton.material.map=THREE.ImageUtils.loadTexture('ButtonPictures/openBirds.png');
+                closeBirds();
+                birdClosed=1;
+            }
+            else {
+                birdButton.material.map=THREE.ImageUtils.loadTexture('ButtonPictures/closeBirds.png');
+                randomBirds();
+                openBirds();
+                birdClosed=0;
+            }
+        }
+        //让鸟儿不可见
+        function closeBirds()
+        {
+            for(var i=0;i<birds.length;i++)
+            {
+                birds[i].visible=false;
+            }
+        }
+        //    让鸟儿可见
+        function openBirds()
+        {
+            for(var i=0;i<birds.length;i++)
+            {
+                birds[i].visible=true;
+            }
+        }
+//        打乱鸟儿的位置
+        function randomBirds()
+        {
+            for(var i=0;i<birds.length;i++)
+            {
+                birds[i].position.x=Math.random()*400-200;
+                birds[i].position.y=Math.random()*400-200;
+                birds[i].position.z=Math.random()*400-200;
+            }
+        }
+        backButton=new THREE.Mesh(
+                new THREE.BoxGeometry(20,20,20),
+                new THREE.MeshLambertMaterial({color:0xffffff,map:THREE.ImageUtils.loadTexture('ButtonPictures/back.png')}));
+        backButton.position.set(60,50,-54);
+        backButton.name='backButton';
+        scene.add(backButton);
+        objects.push(backButton);
+
+        function clickBackButton()
+        {
+            window.open('index.html','_self')
+        }
+        //    自定义琴键恢复初始设置按钮
+        keyboardRecoverButton=new THREE.Mesh(
+                new THREE.BoxGeometry(20,20,20),
+                new THREE.MeshLambertMaterial({color:0xffffff,map:THREE.ImageUtils.loadTexture('ButtonPictures/keyboardRecover.png')}));
+        keyboardRecoverButton.position.set(30,25,-54);
+        keyboardRecoverButton.name='keyboardRecoverButton';
+        scene.add(keyboardRecoverButton);
+        objects.push(keyboardRecoverButton);
+        //    自定义琴键恢复初始设置
+        function keyboardRecover()
+        {
+            initKey();
+            for(i=0;i<blackKeyBoxs.length;i++)
+            {
+                blackKeyBoxs[i].material.map=THREE.ImageUtils.loadTexture('KeyboardPictures/null.png');
+            }
+            for(i=0;i<whiteKeyBoxs.length;i++)
+            {
+                whiteKeyBoxs[i].material.map=THREE.ImageUtils.loadTexture('KeyboardPictures/null.png');
+            }
+            updateBoxsPicture();
+        }
+
+//        暂停瀑布流
+        function stopWaterfall()
+        {
+            waterfallButtonStop=1;
+        }
+        //渲染瀑布流
+        function renderWaterfallCubes() {
+            var j;
+            if(waterfallButtonStop==0) {
+                if(waterfallCubesAtLine>0)//判断引导模式中瀑布流是否该停止
+                {waterfallStop=1;}
+                else{waterfallStop=0}
+                if (waterfallCubesDownWhiteKeys.length > 0)//如果有瀑布流按下的白琴键
+                {
+                    for (i = 0; i < waterfallCubesDownWhiteKeys.length; i++)//让按下的白琴键们抬起
+                    {
+                        waterfallCubesDownWhiteKeys[i].notelength--;
+                        if (waterfallCubesDownWhiteKeys[i].notelength <= -1) {
+                            waterfallWhiteKeysUp(waterfallCubesDownWhiteKeys[i]);
+                            console.log('waterfallCubesDownWhiteKeys ' + waterfallCubesDownWhiteKeys[0].num + ' up');
+                            waterfallCubesDownWhiteKeys.shift();
+                        }
+                    }
+                }
+                if (waterfallCubesDownBlackKeys.length > 0)//如果有瀑布流按下的黑琴键
+                {
+                    for (i = 0; i < waterfallCubesDownBlackKeys.length; i++)//让按下的黑琴键们抬起
+                    {
+                        waterfallCubesDownBlackKeys[i].notelength--;
+                        if (waterfallCubesDownBlackKeys[i].notelength <= -1) {
+                            waterfallBlackKeysUp(waterfallCubesDownBlackKeys[i]);
+                            console.log('waterfallCubesDownBlackKeys ' + waterfallCubesDownBlackKeys[0].num + ' up');
+                            waterfallCubesDownBlackKeys.shift();
+                        }
+                    }
+                }
+                if (waterfallJudgings.length > 0)//用户有按下琴键
+                {
+                    var flag = true;
+                    while (waterfallJudgings.length > 0)
+                    {
+                        j = 0;
+                        if (waterfallCubesMode == 1)//评分模式
+                        {
+                            while (waterfallCubes.length > j && waterfallCubes.length && waterfallCubes[j].position.y - deadLine < deviation) //判断在误差允许范围内的所有瀑布流小方块有无被正确点击
+                            {
+                                if (Math.abs(waterfallCubes[j].position.y - deadLine) < deviation)//如果是符合时间误差范围内的 判断是否音高正确
+                                {
+                                    var pos1, pos2;
+                                    pos1 = waterfallJudgings[0].position.x;
+                                    pos1 = pos1.toFixed(1);//四舍五入取小数点后一位
+                                    pos2 = waterfallCubes[j].position.x;//waterfallCubes的x坐标被Fix过了。
+                                    if (pos1 == pos2 && waterfallCubes[j].correctlyclicked == 0)//确定音高正确，并且未被正确点击过
+                                    {
+                                        waterfallCorrectlyClickedAmount++;//正确弹奏的音符数目加1
+                                        waterfallCubes[j].correctlyclicked = 1;//标记为已被正确弹奏
+                                        if (waterfallCubesMode == 2 || waterfallCubesMode == 1)//如果为引导模式或评分模式，正确点击了的瀑布流方块将消失
+                                        {
+                                            waterfallJudgings[0].material.color.setHex(0x00ff00);//正确点击的琴键设置为绿色
+                                            dyingCube = waterfallCubes[j];
+                                            scene.remove(waterfallCubes[j]);//从场景中删除
+                                            waterfallCubes.splice(j, 1);//从start的位置开始向后删除delCount个元素//从数组中删除
+
+                                            dyingCube.dispatchEvent('type:dispose');
+                                            waterfallCubesAmount--;//场景中的瀑布流方块数目自减
+//                                            waterfallStop = 0;
+                                        }
+                                        break;//跳出循环 删除用户按下的这个琴键的记录
+                                    }
+                                }
+                                j++;//判断下一个waterfallCube有没有被用户正确点击
+                            }
+                        }
+                        else if (waterfallCubesMode == 2 && flag )//引导模式
+                        {
+                            j=0;
+                            if (waterfallCubes.length > j && waterfallCubes.length && waterfallCubes[j].position.y - deadLine < deviation)//判断第一个瀑布流小方块是否被这个用户按下的琴键正确点击
+                            {
+                                if (Math.abs(waterfallCubes[j].position.y - deadLine) < deviation)//如果是符合时间误差范围内的 判断是否音高正确
+                                {
+                                    var pos1, pos2;
+                                    pos1 = waterfallJudgings[0].position.x;
+                                    pos1 = pos1.toFixed(1);//四舍五入取小数点后一位
+                                    pos2 = waterfallCubes[j].position.x;//waterfallCubes的x坐标被Fix过了。
+                                    if (pos1 == pos2 && waterfallCubes[j].correctlyclicked == 0)//确定音高正确，并且未被正确点击过
+                                    {
+                                        waterfallCorrectlyClickedAmount++;//正确弹奏的音符数目加1
+                                        waterfallCubes[j].correctlyclicked = 1;//标记为已被正确弹奏
+                                        if (waterfallCubesMode == 2 || waterfallCubesMode == 1)//如果为引导模式或评分模式，正确点击了的瀑布流方块将消失
+                                        {
+                                            waterfallJudgings[0].material.color.setHex(0x00ff00);//正确点击的琴键设置为绿色
+                                            dyingCube = waterfallCubes[j];
+                                            scene.remove(waterfallCubes[j]);//从场景中删除
+                                            waterfallCubes.splice(j, 1);//从start的位置开始向后删除delCount个元素//从数组中删除
+
+                                            dyingCube.dispatchEvent('type:dispose');
+                                            waterfallCubesAmount--;//场景中的瀑布流方块数目自减
+//                                            waterfallStop = 0;
+                                            waterfallCubesAtLine--;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        waterfallJudgings.shift();
+
+                }
+            }
+                if(waterfallCubes.length>0&&waterfallCubesWriting==0)//已经有写入的瀑布流
+                {
+                    waterfallCubesYouCanWrite=0;//禁止写入
+                    var keyNum;
+                    if(waterfallCubesAmount==0&&waterfallStop==0)//场景中瀑布流方块个数为0，且瀑布流未停止
+                    {
+                        waterfallCubesAmount++;
+                        scene.add(waterfallCubes[0]);
+                        waterfallCubes[waterfallCubesAmount-1].waiting--
+                        while(waterfallCubes[waterfallCubesAmount-1].waiting==-1)
+                        {
+                            waterfallCubesAmount++;
+                            scene.add(waterfallCubes[waterfallCubesAmount-1]);
+                            waterfallCubes[waterfallCubesAmount-1].waiting--
+                        }
+                    }
+                    else//场景中瀑布流方块个数不为0
+                    {
+                        var k=0;
+                        if(waterfallStop==0)//若没有暂停
+                        {
+                            for(i=0;i<waterfallCubesAmount;i++)//让已经出现在场景中的cube下落，并且判断是否添加新的cube到场景中
+                            {
+                                if(!waterfallCubes[i])//若不存在 结束循环
+                                {break;}
+                                waterfallCubes[i].waiting--;//下一个Cube出现的等待时间减少
+                                j=i;
+                                while(waterfallCubes[j].waiting==-1)//下一个Cube该出现了 并判断有无一同出现的cube
+                                {
+                                    k++;//新出现的cube的数目 最后加到waterfallAmount中
+                                    j++;//用于循环判断下一个cube是否与当前cube一同出现
+                                    if(waterfallCubes[j])
+                                    {
+                                        scene.add(waterfallCubes[j]);
+                                        waterfallCubes[j].waiting--;
+                                    }
+                                    else
+                                    {
+                                        break;//若此cube不存在跳出循环
+                                    }
+                                }
+
+                                waterfallCubes[i].position.setY(waterfallCubes[i].position.y-1);//琴键下落
+
+                                if(waterfallCubes[i].position.y<=deadLine&&waterfallCubes[i].position.y>=fadeLine)//碰撞到琴键
+                                {
+                                    if(waterfallCubesMode==2)//如果为引导模式
+                                    {
+                                        if(waterfallCubes[i].correctlyclicked!=1)
+                                        {
+                                            waterfallCubesAtLine++;//到达deadline的瀑布流方块数量+1；
+                                        }
+                                    }
+
+                                    else
+                                    {
+                                        if(waterfallCubes[i].kind=='whiteKeyWaterfallCubes')//白琴键
+                                        {
+                                            keyNum=(waterfallCubes[i].position.x-whiteKeyStartPosition)/(whiteKeyWidth+0.1);
+                                            keyNum=keyNum.toFixed(0);
+                                            waterfallWhiteKeysDown(whiteKeys[keyNum]);
+                                            whiteKeys[keyNum].notelength=waterfallCubes[i].notelength;
+                                            waterfallCubesDownWhiteKeys.push(whiteKeys[keyNum]);
+                                        }
+                                        else if(waterfallCubes[i].kind=='blackKeyWaterfallCubes')//黑琴键
+                                        {
+                                            keyNum=((waterfallCubes[i].position.x-blackKeyStartPosition)+(whiteKeyWidth+0.1))/(whiteKeyWidth+0.1);
+                                            keyNum=keyNum.toFixed(0);
+                                            var beishu=Math.floor(keyNum/7);
+                                            var xushu=keyNum%7;
+
+                                            switch(xushu)
+                                            {
+                                                case 1:xushu=1;break;
+//                                            case 2:xushu=1;break;
+                                                case 3:xushu=2;break;
+                                                case 4:xushu=3;break;
+//                                            case 5:xushu=3;break;
+                                                case 6:xushu=4;break;
+                                                case 0:xushu=0;break;
+                                            }
+
+
+                                            keyNum=5*beishu+xushu;
+                                            keyNum=keyNum.toFixed(0);
+                                            waterfallBlackKeysDown(blackKeys[--keyNum]);
+                                            blackKeys[keyNum].notelength=waterfallCubes[i].notelength;
+                                            waterfallCubesDownBlackKeys.push(blackKeys[keyNum]);
+                                        }
+                                    }
+
+                                }
+                                else if(waterfallCubes[i].position.y<=fadeLine)//下落到消失线
+                                {
+                                    dyingCube=waterfallCubes[0];
+                                    scene.remove(waterfallCubes[0]);//从场景中删除
+                                    waterfallCubes.shift();//删除第一个元素；
+                                    dyingCube.dispatchEvent('type:dispose');
+                                    waterfallCubesAmount--;
+                                    i--;
+
+                                }
+
+                            }
+                            waterfallCubesAmount=waterfallCubesAmount+k;
+                        }
+
+                    }
+
+                }
+                else if(waterfallCubes.length==0&&waterfallCubesWriting==0&&waterfallCubesYouCanWrite==0)//没有正在写入的瀑布流 也没有已经写入的瀑布流
+                {
+                    waterfallCubesYouCanWrite=1;
+                    var miss;
+                    miss=(waterfallClickedAmount-waterfallCorrectlyClickedAmount)*(10/waterfallNotesAmount);
+                    if(miss>10)miss=10;
+                    score=waterfallCorrectlyClickedAmount/waterfallNotesAmount*100-miss;
+                    if(score<0)score=0;
+                    score=score.toFixed(1);
+                    console.log('score:'+score);
+                    var message,message1,erramount;
+                    if(score<60)
+                    {
+                        message='继续加油哦~'
+                    }
+                    else if(score<85)
+                    {
+                        message='不错不错，继续加油哦~'
+                    }
+                    else if(score<95)
+                    {
+                        message='真不错~你很棒棒哦！'
+                    }
+                    else if(score<100)
+                    {
+                        message='接近完美了耶，你真厉害！'
+                    }
+                    else if(score==100)
+                    {
+                        message='完美！你的小伙伴们都惊呆了！'
+                    }
+                    erramount=waterfallClickedAmount-waterfallCorrectlyClickedAmount
+                    message1='你总共点击了'+waterfallClickedAmount+'个琴键，其中正确的琴键有'+waterfallCorrectlyClickedAmount+'个，错误的琴键有'+erramount+'个,你的得分为'+score+'。'+message;
+
+                    if(waterfallCubesMode==1)
+                    {
+                        alert(message1);
+                    }
+                    waterfallButton.material.map=THREE.ImageUtils.loadTexture('ButtonPictures/playMusic.png');
+                    waterfallButtonStop=0;
+                }
+
+            }
+        }
+//        关闭瀑布流
+        function closeWaterfall()
+        {
+            var i;
+            for(i=0;i<scene.children.length;i++)
+            {
+                if(scene.children[i].kind=='blackKeyWaterfallCubes'||scene.children[i].kind=='whiteKeyWaterfallCubes')
+                {
+                    scene.remove(scene.children[i]);
+                    i--;
+                }
+            }
+            while(waterfallCubes.length>0)
+            {
+                waterfallCubes.pop();
+            }
+        }
+//        关闭瀑布流按钮
+        waterfallCloseButton=new THREE.Mesh(
+                new THREE.BoxGeometry(20,20,20),
+                new THREE.MeshLambertMaterial({color:0xffffff,map:THREE.ImageUtils.loadTexture('ButtonPictures/closeMusic.png')}));
+        waterfallCloseButton.position.set(0,25,-54);
+        waterfallCloseButton.name='waterfallCloseButton';
+        scene.add(waterfallCloseButton);
+        objects.push(waterfallCloseButton);
+//        瀑布流模式选择按钮
+        waterfallModesChooseButton=new THREE.Mesh(
+        new THREE.BoxGeometry(20,20,20),
+        new THREE.MeshLambertMaterial({color:0xffffff}));
+        waterfallModesChooseButton.position.set(-30,50,-54);
+        waterfallModesChooseButton.name='waterfallModesChooseButton';
+        updateWaterfallModesChooseButtonPicture();
+        scene.add(waterfallModesChooseButton);
+        objects.push(waterfallModesChooseButton);
+
+//        瀑布流模式选择按钮图片更新函数
+        function updateWaterfallModesChooseButtonPicture()
+        {
+            if(waterfallCubesMode==0)
+            {
+                waterfallModesChooseButton.material.map=THREE.ImageUtils.loadTexture('ButtonPictures/appreciateWaterfallMode.png');
+            }
+            else if(waterfallCubesMode==1){
+                waterfallModesChooseButton.material.map=THREE.ImageUtils.loadTexture('ButtonPictures/calculateScoreWaterfallMode.png');
+            }
+            else if(waterfallCubesMode==2)
+            {
+                waterfallModesChooseButton.material.map=THREE.ImageUtils.loadTexture('ButtonPictures/guidingWaterfallMode.png');
+            }
+        }
+//        瀑布流模式选择按钮被点击的处理函数
+        function clickWaterfallModesChooseButton()
+        {
+            waterfallCubesMode++;
+            waterfallCubesMode=Math.floor(waterfallCubesMode%3);
+            updateWaterfallModesChooseButtonPicture();
+        }
+//        黑键模式选择按钮
+        blackKeyModesChooseButton=new THREE.Mesh(
+                new THREE.BoxGeometry(20,20,20),
+                new THREE.MeshLambertMaterial({color:0xffffff}));
+        blackKeyModesChooseButton.position.set(-60,25,-54);
+        blackKeyModesChooseButton.name='blackKeyModesChooseButton';
+        updateBlackKeyModesChooseButtonPicture();
+        scene.add(blackKeyModesChooseButton);
+        objects.push(blackKeyModesChooseButton);
+//        黑键模式选择按钮图片更新
+        function updateBlackKeyModesChooseButtonPicture()
+        {
+            if(blackKeyMode==0)
+            {
+                blackKeyModesChooseButton.material.map=THREE.ImageUtils.loadTexture('ButtonPictures/blackKeyModeDown.png');
+            }
+            else if(blackKeyMode==1){
+                blackKeyModesChooseButton.material.map=THREE.ImageUtils.loadTexture('ButtonPictures/blackKeyModeUp.png');
+            }
+
+        }
+//        黑键模式选择按钮被点击的处理函数
+        function clickBlackKeyModesChooseButton()
+        {
+            blackKeyMode++;
+            blackKeyMode=Math.floor(blackKeyMode%2);
+            updateBlackKeyModesChooseButtonPicture();
+            updateBlackKeyPlanesPicture();
+        }
+//        瀑布流速度选择按钮
+        waterfallVelocityChooseButton=new THREE.Mesh(
+                new THREE.BoxGeometry(20,20,20),
+                new THREE.MeshLambertMaterial({color:0xffffff}));
+        waterfallVelocityChooseButton.position.set(-60,50,-54);
+        waterfallVelocityChooseButton.name='waterfallVelocityChooseButton';
+        updateWaterfallVelocityChooseButtonPicture();
+        scene.add(waterfallVelocityChooseButton);
+        objects.push(waterfallVelocityChooseButton);
+
+        //        瀑布流速度选择按钮图片更新函数
+        function updateWaterfallVelocityChooseButtonPicture()
+        {
+            if(waterfallVelocity==5)
+            {
+                waterfallVelocityChooseButton.material.map=THREE.ImageUtils.loadTexture('ButtonPictures/velocityVerySlow.png');
+            }
+            else if(waterfallVelocity==4){
+                waterfallVelocityChooseButton.material.map=THREE.ImageUtils.loadTexture('ButtonPictures/velocitySlow.png');
+            }
+            else if(waterfallVelocity==3)
+            {
+                waterfallVelocityChooseButton.material.map=THREE.ImageUtils.loadTexture('ButtonPictures/velocityNormal.png');
+            }
+            else if(waterfallVelocity==2)
+            {
+                waterfallVelocityChooseButton.material.map=THREE.ImageUtils.loadTexture('ButtonPictures/velocityFast.png');
+            }
+            else if(waterfallVelocity==1)
+            {
+                waterfallVelocityChooseButton.material.map=THREE.ImageUtils.loadTexture('ButtonPictures/velocityVeryFast.png');
+            }
+        }
+        //        瀑布流速度选择按钮被点击的处理函数
+        function clickWaterfallVelocityChooseButton()
+        {
+            waterfallVelocity++;
+            waterfallVelocity=Math.floor(waterfallVelocity%5);
+            if(waterfallVelocity==0)
+            {
+                waterfallVelocity=5;
+            }
+            updateWaterfallVelocityChooseButtonPicture();
+        }
+//        更新提示盒子的图片为音高
+        function updateKeyBoxesOnPitch()
+        {
+            var i=0,j;
+            if(blackKeyMode==0)
+            {
+                for(i = 0;i<blackKeyBoxs.length;i++)
+                {
+                    j=101+i;
+                    blackKeyBoxs[i].material.map=THREE.ImageUtils.loadTexture('waterfallPitchPictures/down'+j+'.png')
+                }
+            }
+            else
+            {
+                for(i = 0;i<blackKeyBoxs.length;i++)
+                {
+                    j=101+i;
+                    blackKeyBoxs[i].material.map=THREE.ImageUtils.loadTexture('waterfallPitchPictures/up'+j+'.png')
+                }
+            }
+            for(i = 0;i<whiteKeyBoxs.length;i++)
+            {
+                j=201+i;
+                whiteKeyBoxs[i].material.map=THREE.ImageUtils.loadTexture('waterfallPitchPictures/'+j+'.png')
+            }
+        }
+//        简谱基础教学开关
+        numberedMusicalNotationTeachingButton=new THREE.Mesh(
+                new THREE.BoxGeometry(20,20,20),
+                new THREE.MeshLambertMaterial({color:0xffffff,map:THREE.ImageUtils.loadTexture('ButtonPictures/numberedMusicalNotationTeachingOpen.png')}));
+        numberedMusicalNotationTeachingButton.position.set(-90,25,-54);
+        numberedMusicalNotationTeachingButton.name='numberedMusicalNotationTeachingButton';
+        scene.add(numberedMusicalNotationTeachingButton);
+        objects.push(numberedMusicalNotationTeachingButton);
+        //    点击numberedMusicalNotationTeachingButton的处理函数
+        function clickNumberedMusicalNotationTeachingButton()
+        {
+            if(numberedMusicalNotationTeaching==0)
+            {
+                numberedMusicalNotationTeachingButton.material.map=THREE.ImageUtils.loadTexture('ButtonPictures/numberedMusicalNotationTeachingClose.png');
+                numberedMusicalNotationTeaching=1;
+            }
+            else {
+                numberedMusicalNotationTeachingButton.material.map=THREE.ImageUtils.loadTexture('ButtonPictures/numberedMusicalNotationTeachingOpen.png');
+                numberedMusicalNotationTeaching=0;
+            }
+        }
+//        初始化简谱音高图片
+        function initKeyPlanes()
+        {
+            var i,KeyPlane,p,j ,k;
+            p=blackKeyStartPosition;
+            j=1;
+            for(i=101;i<=136;i++)
+            {
+                KeyPlane=new THREE.Mesh(new THREE.PlaneGeometry(20,20),new THREE.MeshLambertMaterial({color:0xffffff}))
+                KeyPlane.name='blackKeyPlane'+i;
+                KeyPlane.position.x=p;
+                KeyPlane.position.y=30;
+                KeyPlane.position.z=-29;
+                KeyPlane.material.transparent=true;
+                KeyPlane.material.alpha=0;
+                KeyPlane.visible=false;
+                scene.add(KeyPlane);
+                blackKeyPlanes.push(KeyPlane);
+                k=j%5;
+                if(k==1||k==4)
+                {
+                    p=p+whiteKeyWidth+0.1;
+                }
+                j++;
+                p=p+whiteKeyWidth+0.1;
+            }
+            updateBlackKeyPlanesPicture();
+            for(i=201;i<=252;i++)
+            {
+                KeyPlane=new THREE.Mesh(new THREE.PlaneGeometry(20,20),new THREE.MeshLambertMaterial({color:0xffffff,map:THREE.ImageUtils.loadTexture('waterfallPitchPictures/'+i+'.png')}))
+                KeyPlane.name='whitekKeyPlane'+i;
+                KeyPlane.position.x=whiteKeyStartPosition+(i-201)*(whiteKeyWidth+0.1)
+                KeyPlane.position.y=20
+                KeyPlane.position.z=-29;
+                KeyPlane.material.transparent=true;
+                KeyPlane.visible=false;
+                KeyPlane.material.alpha=0;
+                scene.add(KeyPlane);
+                whiteKeyPlanes.push(KeyPlane);
+            }
+        }
+        initKeyPlanes();
+//        更新简谱音高图片
+        function updateBlackKeyPlanesPicture()
+        {
+            var i;
+            if(blackKeyMode==0)
+            {
+                for(i=101;i<=136;i++)
+                {
+                    blackKeyPlanes[i-101].material.map=THREE.ImageUtils.loadTexture('waterfallPitchPictures/down'+i+'.png')
+                }
+            }
+            else
+            {
+                for(i=101;i<=136;i++)
+                {
+                    blackKeyPlanes[i-101].material.map=THREE.ImageUtils.loadTexture('waterfallPitchPictures/up'+i+'.png')
+                }
+            }
+        }
+        function fade(mesh,n)
+        {
+            mesh.alpha=0;
+
+            mesh.visible=false;
+        }
+        function showPlane(i)
+        {
+            if(i>200&&i<=252)
+            {
+                whiteKeyPlanes[i-201].visible=true;
+            }
+            else if(i>100&&i<=136)
+            {
+                blackKeyPlanes[i-101].visible=true;
+            }
+        }
+        function hidePlane(i)
+        {
+            if(i>200&&i<=252)
+            {
+                whiteKeyPlanes[i-201].visible=false;
+            }
+            else if(i>100&&i<=136)
+            {
+                blackKeyPlanes[i-101].visible=false;
+            }
+        }
+
+        initStave();
+        //      初始化五线谱
+        function initStave()
+        {
+            initStavePosition();
+            var staveLine;
+//            五线谱背景板
+            stavePlane=new THREE.Mesh(new THREE.PlaneGeometry(320,56),
+                    new THREE.MeshLambertMaterial({color:0xffffff}));
+            stavePlane.position.y=staveCenterPositionY;
+            stavePlane.position.z=stavePositionZ;
+            stavePlane.visible=false;
+            stavePlane.name='stavePlane';
+            scene.add(stavePlane);
+            objects.push(stavePlane);
+            j=0;
+            for(i=11;i>0;i--)//五线谱上的线
+            {
+                if(i==6)
+                {
+                    staveLine=new THREE.Mesh(new THREE.BoxGeometry(whiteKeyWidth,1,1),
+                            new THREE.MeshLambertMaterial({color:0x0099ff}));
+                    staveLine.position.x=whiteKeys[23].position.x;
+                }
+                else {
+                    staveLine=new THREE.Mesh(new THREE.BoxGeometry(320,1,1),
+                            new THREE.MeshLambertMaterial({color:0x0099ff}));
+                }
+                staveLine.position.y=staveCenterPositionY-20+4*i;
+                staveLine.position.z=stavePositionZ+0.5;
+                staveLine.visible=false;
+                staveLine.name='staveLine'+j;
+                stavePlaneLines.push(staveLine);
+                scene.add(staveLine);
+                j++;
+            }
+            //高音谱号
+            GclefPlane=new THREE.Mesh(new THREE.PlaneGeometry(14.7,29),
+                    new THREE.MeshLambertMaterial({color:0xffffff,map:THREE.ImageUtils.loadTexture('stavePictures/Gclef.png')}));
+            GclefPlane.visible=false;
+            GclefPlane.material.transparent=true;
+            GclefPlane.name='GclefPlane';
+            GclefPlane.position.x=whiteKeyStartPosition+5;
+            GclefPlane.position.y=staveCenterPositionY+16;
+            GclefPlane.position.z=stavePositionZ+0.1;
+
+            scene.add(GclefPlane);
+            FclefPlane=new THREE.Mesh(new THREE.PlaneGeometry(14,14),
+                    new THREE.MeshLambertMaterial({color:0xffffff,map:THREE.ImageUtils.loadTexture('stavePictures/Fclef.png')}));
+            FclefPlane.visible=false;
+            FclefPlane.material.transparent=true;
+            FclefPlane.name='FclefPlane';
+            FclefPlane.position.x=whiteKeyStartPosition+5;
+            FclefPlane.position.y=staveCenterPositionY-6;
+            FclefPlane.position.z=stavePositionZ+0.1;
+            scene.add(FclefPlane);
+            initStaveNotes();
+        }
+        //    初始化五线谱位置数组
+        function initStavePosition()
+        {
+            var i,j,k,p;
+            for(i=1;i<=52;i++)
+            {
+                p=staveCenterPositionY+(i-22)*2;
+                whiteKeyStavePositionY.push(p);
+            }
+            j=0;
+            for(i=1;i<=36;i++)
+            {
+                k=i%5;
+                blackKeyStavePositionY.push(whiteKeyStavePositionY[j]);
+                if(k==1||k==4)j++;
+                j++;
+            }
+        }
+//      初始化五线谱上的音符
+        function initStaveNotes()
+        {
+            var notePlane;
+            for(i=0;i<52;i++)
+            {
+                notePlane=new THREE.Mesh(new THREE.PlaneGeometry(4.9,4),
+                    new THREE.MeshBasicMaterial({color:0xffffff,map:THREE.ImageUtils.loadTexture('stavePictures/SemibreveGray.png')}));
+                notePlane.position.x=whiteKeys[i].position.x;
+                notePlane.position.y=whiteKeyStavePositionY[i];
+                notePlane.position.z=stavePositionZ+1.1;
+                notePlane.material.transparent=true;
+                notePlane.visible=false;
+                notePlane.name='notePlane'+i;
+                staveNotePlanes.push(notePlane);
+                scene.add(notePlane);
+            }
+
+            for(i=0;i<52;i++)
+            {
+                notePlane=new THREE.Mesh(new THREE.PlaneGeometry(4,4),
+                        new THREE.MeshBasicMaterial({color:0xffffff,map:THREE.ImageUtils.loadTexture('stavePictures/flatRed.png')}));
+                notePlane.position.x=whiteKeys[i].position.x-4;
+                notePlane.position.y=whiteKeyStavePositionY[i];
+                notePlane.position.z=stavePositionZ+1.2;
+                notePlane.material.transparent=true;
+                notePlane.visible=false;
+                notePlane.name='flat'+i;
+                flats.push(notePlane);
+                scene.add(notePlane);
+            }
+
+
+            for(i=0;i<52;i++)
+            {
+                notePlane=new THREE.Mesh(new THREE.PlaneGeometry(4,4),
+                        new THREE.MeshBasicMaterial({color:0xffffff,map:THREE.ImageUtils.loadTexture('stavePictures/sharpRed.png')}));
+                notePlane.position.x=whiteKeys[i].position.x-4;
+                notePlane.position.y=whiteKeyStavePositionY[i];
+                notePlane.position.z=stavePositionZ+1.2;
+                notePlane.material.transparent=true;
+                notePlane.visible=false;
+                notePlane.name='flat'+i;
+                sharps.push(notePlane);
+                scene.add(notePlane);
+            }
+
+        }
+//        五线谱可视化
+        function showStave()
+        {
+            stavePlane.visible=true;
+            for(i=0;i<11;i++)
+            {
+                stavePlaneLines[i].visible=true;
+            }
+            for(i=0;i<staveNotePlanes.length;i++)
+            {
+                staveNotePlanes[i].visible=true;
+                staveNotePlanes[i].material.color.setHex(0xffffff);
+            }
+            FclefPlane.visible=true;
+            GclefPlane.visible=true;
+        }
+//        五线谱不可见
+        function hideStave()
+        {
+            stavePlane.visible=false;
+            for(i=0;i<11;i++)
+            {
+                stavePlaneLines[i].visible=false;
+            }
+            for(i=0;i<52;i++)
+            {
+                staveNotePlanes[i].visible=false;
+            }
+            FclefPlane.visible=false;
+            GclefPlane.visible=false;
+        }
+
+        staveButton=new THREE.Mesh(
+                new THREE.BoxGeometry(20,20,20),
+                new THREE.MeshLambertMaterial({color:0xffffff,map:THREE.ImageUtils.loadTexture('ButtonPictures/staveOpen.png')}));
+        staveButton.name='staveButton';
+        staveButton.position.set(-90,50,-54)
+        scene.add(staveButton);
+        objects.push(staveButton);
+
+//        点击五线谱学习按钮处理函数
+        function clickStaveButton()
+        {
+            if(staveIng==0)
+            {
+                staveIng=1;
+                staveButton.material.map=THREE.ImageUtils.loadTexture('ButtonPictures/staveClose.png')
+                showStave();
+            }
+            else
+            {
+                staveIng=0;
+                staveButton.material.map=THREE.ImageUtils.loadTexture('ButtonPictures/staveOpen.png')
+                hideStave();
+            }
+        }
+        //五线谱学习时琴键按下
+        function staveKeyDown(keynum) {
+            var num
+            if(keynum>200&&keynum<=252)
+            {
+                    staveNotePlanes[keynum-201].material.color.setHex(0xff0000);
+            }
+            else if(keynum>100&&keynum<=136)
+            {
+                if(blackKeyMode==0)
+                {
+                    num=findBlackKeyFlatAndSharpNum(keynum,0)
+                    flats[num].visible=true;
+                    staveNotePlanes[num].material.color.setHex(0xff0000);
+                }
+                else if(blackKeyMode==1)
+                {
+                    num=findBlackKeyFlatAndSharpNum(keynum,1)
+                    sharps[num].visible=true;
+                    staveNotePlanes[num].material.color.setHex(0xff0000);
+                }
+            }
+        }
+
+
+        //五线谱学习时琴键抬起
+        function staveKeyUp(keynum) {
+            var num;
+            if(keynum>200&&keynum<=252)
+            {
+                staveNotePlanes[keynum-201].material.color.setHex(0xffffff);
+            }
+            else if(keynum>100&&keynum<=136)
+            {
+                if(blackKeyMode==0)
+                {
+                    num=findBlackKeyFlatAndSharpNum(keynum,0)
+                    flats[num].visible=false;
+                    staveNotePlanes[num].material.color.setHex(0xffffff);
+                }
+                else if(blackKeyMode==1)
+                {
+                    num=findBlackKeyFlatAndSharpNum(keynum,1)
+                    sharps[num].visible=false;
+                    staveNotePlanes[num].material.color.setHex(0xffffff);
+                }
+            }
+        }
+        //返回黑键对应的音符序号
+        function findBlackKeyFlatAndSharpNum(keynum,num)
+        {
+            if(blackKeyFlatAndSharpNum.length==0)
+            {
+                initBlackKeyFlatAndSharpNum()
+            }
+            if(num==0)
+            {
+                return blackKeyFlatAndSharpNum[keynum-101]+1;
+            }
+            else if(num==1)
+            {
+                return blackKeyFlatAndSharpNum[keynum-101];
+            }
+        }
+        //初始化黑键音符C大调降调模式对应音符序号
+        function initBlackKeyFlatAndSharpNum()
+        {
+            var i,j;
+            for(i=1;i<=52;i++)
+            {
+                j=i%7;
+                blackKeyFlatAndSharpNum.push(i-1);
+                if(j==1||j==4)
+                {
+                    i++;
+                }
+            }
+        }
+
+        waterfallMusicChooseButton=new THREE.Mesh(
+                new THREE.BoxGeometry(20,20,20),
+                new THREE.MeshLambertMaterial({color:0xffffff}));
+        waterfallMusicChooseButton.name='waterfallMusicChooseButton';
+        waterfallMusicChooseButton.position.set(-30,25,-54)
+        scene.add(waterfallMusicChooseButton);
+        objects.push(waterfallMusicChooseButton);
+        updateMusicPicture();
+        //更新示例音乐选择按钮的图片
+        function updateMusicPicture()
+        {
+            switch(waterfallMusicChooseNum)
+            {
+                case 0:waterfallMusicChooseButton.material.map=THREE.ImageUtils.loadTexture('ButtonPictures/littleStar00.png');break;
+                case 1:waterfallMusicChooseButton.material.map=THREE.ImageUtils.loadTexture('ButtonPictures/littleStar.png');break;
+                case 2:waterfallMusicChooseButton.material.map=THREE.ImageUtils.loadTexture('ButtonPictures/littleStar1.png');break;
+            }
+        }
+        function clickWaterfallMusicChooseButton()
+        {
+            waterfallMusicChooseNum++;
+            waterfallMusicChooseNum=Math.floor(waterfallMusicChooseNum%waterfallMusicAmount);
+            updateMusicPicture();
+        }
+        function playChoosedMusic() {
+            switch(waterfallMusicChooseNum)
+            {
+                case 0:playMusicByArray(littlestar00);break;
+                case 1:playMusicByArray(littlestar);break;
+                case 2:playMusicByArray(littlestar1);break;
+            }
+        }
+    </script>
+</body>
+</html>

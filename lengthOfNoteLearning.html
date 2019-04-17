@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>音长学习</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style>
+			body {
+				font-family: Monospace;
+				background-color: #f0f0f0;
+				margin: 0px;
+				overflow: hidden;
+			}
+		</style>
+	</head>
+	<body>
+
+		<script src="three.js"></script>
+
+		<script src="Projector.js"></script>
+		<script src="CanvasRenderer.js"></script>
+
+		<script src="OrbitControls.js"></script>
+
+		<script src="stats.min.js"></script>
+
+		<script>
+
+			var container, stats;
+
+			var camera, scene, renderer,raycaster;
+
+			var plane1,plane2,plane3,plane4;
+			var cubex=cubez=200;
+			var cubey=200;
+			var cubeposition=new THREE.Vector3(0,150,0)
+
+			var notePlaneNumber=6;
+			var notePlaneOrigin=new THREE.Vector3(0,0,0);
+			var staveNotePlaneOrigin=new THREE.Vector3(-400,0,0);
+			var numberedMusicalNotePlaneOrigin=new THREE.Vector3(400,0,0);
+			var rotationR=cubex/2*Math.tan(2*Math.PI/notePlaneNumber);
+			var notePlane;
+			var notePlanes=[];
+			var staveNotePlanes=[];
+			var numberedMusicalNotePlanes=[]
+			var notePlanePictures=[
+					'lengthOfNoteLearningPictures/semibreve.png',
+				'lengthOfNoteLearningPictures/minim.png',
+				'lengthOfNoteLearningPictures/crotchet.png',
+				'lengthOfNoteLearningPictures/quaver.png',
+				'lengthOfNoteLearningPictures/semiquaver.png',
+				'lengthOfNoteLearningPictures/demisemiquaver.png',
+			]
+			var staveNotePlanePictures=[
+				'lengthOfNoteLearningPictures/staveSemibreve.png',
+				'lengthOfNoteLearningPictures/staveMinim.png',
+				'lengthOfNoteLearningPictures/staveCrotchet.png',
+				'lengthOfNoteLearningPictures/staveQuaver.png',
+				'lengthOfNoteLearningPictures/staveSemiquaver.png',
+				'lengthOfNoteLearningPictures/staveDemisemiquaver.png',
+			]
+			var numberedMusicalNotePlanePictures=[
+				'lengthOfNoteLearningPictures/numberedMusicalNoteSemibreve.png',
+				'lengthOfNoteLearningPictures/numberedMusicalNoteMinim.png',
+				'lengthOfNoteLearningPictures/numberedMusicalNoteCrotchet.png',
+				'lengthOfNoteLearningPictures/numberedMusicalNoteQuaver.png',
+				'lengthOfNoteLearningPictures/numberedMusicalNoteSemiquaver.png',
+				'lengthOfNoteLearningPictures/numberedMusicalNoteDemisemiquaver.png',
+			]
+			var positionChangeVector;
+			var positionChangeVectors=[
+					new THREE.Vector3(0,0,rotationR),
+				new THREE.Vector3(rotationR*Math.sin(2*Math.PI/notePlaneNumber),0,rotationR*Math.cos(2*Math.PI/notePlaneNumber)),
+				new THREE.Vector3(rotationR*Math.sin(2*Math.PI/notePlaneNumber*2),0,rotationR*Math.cos(2*Math.PI/notePlaneNumber*2)),
+				new THREE.Vector3(rotationR*Math.sin(2*Math.PI/notePlaneNumber*3),0,rotationR*Math.cos(2*Math.PI/notePlaneNumber*3)),
+				new THREE.Vector3(rotationR*Math.sin(2*Math.PI/notePlaneNumber*4),0,rotationR*Math.cos(2*Math.PI/notePlaneNumber*4)),
+				new THREE.Vector3(rotationR*Math.sin(2*Math.PI/notePlaneNumber*5),0,rotationR*Math.cos(2*Math.PI/notePlaneNumber*5)),
+			];
+			var geometryRotation=0;
+
+			var targetRotation = 0;
+			var targetRotationOnMouseDown = 0;
+
+			var mouseX = 0;
+			var mouseXOnMouseDown = 0;
+
+			var windowHalfX = window.innerWidth / 2;
+			var windowHalfY = window.innerHeight / 2;
+
+
+
+			var objects=[];
+			var raycaster=new THREE.Raycaster();
+			var mouse=new THREE.Vector2();
+			var moved=0;
+			var mousedowned=0;
+
+			init();
+			animate();
+
+			function init() {
+
+				container = document.createElement( 'div' );
+				document.body.appendChild( container );
+
+				var info = document.createElement( 'div' );
+				info.style.position = 'absolute';
+				info.style.top = '60px';
+				info.style.fontWeight='bold'
+				info.style.fontFamily='Arial'
+				info.style.color = '#006633';
+				info.style.width = '100%';
+				info.style.textAlign = 'center';
+				info.innerHTML = '滑动查看不同音长对应音符';
+				container.appendChild( info );
+
+				var back = document.createElement( 'div' );
+				back.style.position = 'absolute';
+				back.style.right='20px';
+				back.style.top = '20px';
+				container.appendChild( back );
+				var backImg = document.createElement("img");     //创建一个img元素  
+				backImg.src="ButtonPictures/blackBack.png";   //给img元素的src属性赋值  
+				backImg.width="50";
+				backImg.height="50"
+				back.appendChild(backImg);      //为dom添加子元素img  
+
+				back.addEventListener( 'mousedown', clickBackButton, false );
+				back.addEventListener( 'touchstart', clickBackButton, false );
+				function clickBackButton()
+				{
+					window.open('index.html','_self')
+				}
+
+				back.addEventListener('mousemove',highLightBackButton,false);
+				function highLightBackButton() {
+					backImg.src="ButtonPictures/redBackBold.png"
+				}
+
+				back.addEventListener('mouseout',blackenBackButton,false);
+				function blackenBackButton() {
+					backImg.src="ButtonPictures/blackBack.png"
+				}
+
+				camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 1, 1000 );
+				camera.position.y = 0;
+				camera.position.z = 600;
+
+				scene = new THREE.Scene();
+
+				//挡板
+				var planePositionY=-600;
+				for(i=0;i<4;i++)
+				{
+					geometry=new THREE.PlaneBufferGeometry( cubex, cubey );
+					geometry.rotateY(geometryRotation);
+					notePlane=new THREE.Mesh(geometry
+							,new THREE.MeshBasicMaterial({color:0xf0f0f0}))
+					notePlane.position.x=notePlaneOrigin.x+planePositionY;
+					notePlane.position.y=notePlaneOrigin.y;
+					notePlane.position.z=notePlaneOrigin.z+rotationR;
+					scene.add(notePlane);
+					planePositionY+=400;
+				}
+				// notePlanes
+				geometryRotation=0;
+				for(i=0;i<6;i++)
+				{
+					geometry=new THREE.PlaneBufferGeometry( cubex, cubey );
+					geometry.rotateY(geometryRotation);
+					notePlane=new THREE.Mesh(geometry
+							,new THREE.MeshBasicMaterial())
+					notePlane.position.x=notePlaneOrigin.x+positionChangeVectors[i].x;
+					notePlane.position.y=notePlaneOrigin.y;
+					notePlane.position.z=notePlaneOrigin.z+positionChangeVectors[i].z;
+					notePlanes.push(notePlane);
+					geometryRotation+=2*Math.PI/notePlaneNumber;
+					notePlane.material.map=THREE.ImageUtils.loadTexture(notePlanePictures[i])
+					scene.add(notePlane);
+				}
+				// staveNotePlanes
+				geometryRotation=0;
+				for(i=0;i<6;i++)
+				{
+					geometry=new THREE.PlaneBufferGeometry( cubex, cubey );
+					geometry.rotateY(geometryRotation);
+					notePlane=new THREE.Mesh(geometry
+							,new THREE.MeshBasicMaterial())
+					notePlane.position.x=staveNotePlaneOrigin.x+positionChangeVectors[i].x;
+					notePlane.position.y=staveNotePlaneOrigin.y;
+					notePlane.position.z=staveNotePlaneOrigin.z+positionChangeVectors[i].z;
+					staveNotePlanes.push(notePlane);
+					geometryRotation+=2*Math.PI/notePlaneNumber;
+					notePlane.material.map=THREE.ImageUtils.loadTexture(staveNotePlanePictures[i])
+					scene.add(notePlane);
+				}
+
+				// numberedMusicalNotePlanes
+				geometryRotation=0;
+				for(i=0;i<6;i++)
+				{
+					geometry=new THREE.PlaneBufferGeometry( cubex, cubey );
+					geometry.rotateY(geometryRotation);
+					notePlane=new THREE.Mesh(geometry
+							,new THREE.MeshBasicMaterial())
+					notePlane.position.x=numberedMusicalNotePlaneOrigin.x+positionChangeVectors[i].x;
+					notePlane.position.y=numberedMusicalNotePlaneOrigin.y;
+					notePlane.position.z=numberedMusicalNotePlaneOrigin.z+positionChangeVectors[i].z;
+					numberedMusicalNotePlanes.push(notePlane);
+					geometryRotation+=2*Math.PI/notePlaneNumber;
+					notePlane.material.map=THREE.ImageUtils.loadTexture(numberedMusicalNotePlanePictures[i])
+					scene.add(notePlane);
+				}
+				renderer = new THREE.WebGLRenderer();
+				renderer.alpha=true;
+				renderer.setClearColor( 0xf0f0f0,1 );
+				renderer.setPixelRatio( window.devicePixelRatio );
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				container.appendChild( renderer.domElement );
+
+				stats = new Stats();
+				container.appendChild( stats.dom );
+
+				document.addEventListener( 'mousedown', onDocumentMouseDown, false );
+				document.addEventListener( 'touchstart', onDocumentTouchStart, false );
+				document.addEventListener( 'touchmove', onDocumentTouchMove, false );
+				document.addEventListener( 'touchend', onDocumentTouchEnd, false );
+
+				window.addEventListener( 'resize', onWindowResize, false );
+
+			}
+//			处理窗口大小改变事件
+			function onWindowResize() {
+
+				windowHalfX = window.innerWidth / 2;
+				windowHalfY = window.innerHeight / 2;
+
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+
+				renderer.setSize( window.innerWidth, window.innerHeight );
+
+			}
+
+			//
+//			处理鼠标按下事件
+			function onDocumentMouseDown( event ) {
+
+				event.preventDefault();
+
+				document.addEventListener( 'mousemove', onDocumentMouseMove, false );
+				document.addEventListener( 'mouseup', onDocumentMouseUp, false );
+				document.addEventListener( 'mouseout', onDocumentMouseOut, false );
+
+				mouseXOnMouseDown = event.clientX - windowHalfX;
+				targetRotationOnMouseDown = targetRotation;
+				mousedowned=1;
+
+			}
+//			处理鼠标移动事件
+			function onDocumentMouseMove( event ) {
+
+				mouseX = event.clientX - windowHalfX;
+
+				targetRotation = targetRotationOnMouseDown + ( mouseX - mouseXOnMouseDown ) * 0.02;
+
+				moved=1;
+
+			}
+//			处理鼠标抬起事件
+			function onDocumentMouseUp( event ) {
+
+				document.removeEventListener( 'mousemove', onDocumentMouseMove, false );
+				document.removeEventListener( 'mouseup', onDocumentMouseUp, false );
+				document.removeEventListener( 'mouseout', onDocumentMouseOut, false );
+				moved=0;
+				mousedowned=0;
+			}
+//			处理鼠标移开事件
+			function onDocumentMouseOut( event ) {
+
+				document.removeEventListener( 'mousemove', onDocumentMouseMove, false );
+				document.removeEventListener( 'mouseup', onDocumentMouseUp, false );
+				document.removeEventListener( 'mouseout', onDocumentMouseOut, false );
+
+			}
+//			处理手指触摸开始事件
+			function onDocumentTouchStart( event ) {
+//				触摸屏幕上的手指个数为1
+				if ( event.touches.length === 1 ) {
+
+					event.preventDefault();
+
+					mouseXOnMouseDown = event.touches[ 0 ].pageX - windowHalfX;
+					targetRotationOnMouseDown = targetRotation;
+
+					mousedowned=1;
+				}
+
+			}
+//			处理手指触摸移动事件
+			function onDocumentTouchMove( event ) {
+
+//				触摸屏幕上的手指个数为1
+				if ( event.touches.length === 1 ) {
+
+					event.preventDefault();
+
+					mouseX = event.touches[ 0 ].pageX - windowHalfX;
+					targetRotation = targetRotationOnMouseDown + ( mouseX - mouseXOnMouseDown ) * 0.05;
+
+					moved=1;
+				}
+
+			}
+//			处理手指触摸结束事件
+			function onDocumentTouchEnd( event ) {
+
+//				触摸屏幕上的手指个数为1
+				if ( event.touches.length === 1 ) {
+
+					event.preventDefault();
+
+					mouseX = event.touches[ 0 ].pageX - windowHalfX;
+					targetRotation = targetRotationOnMouseDown + ( mouseX - mouseXOnMouseDown ) * 0.05;
+
+					moved=0;
+					mousedowned=0;
+				}
+
+			}
+
+			//动画处理函数
+
+			function animate() {
+
+				requestAnimationFrame( animate );
+
+				stats.begin();
+				render();
+				stats.end();
+
+			}
+//			渲染函数
+			function render() {
+				geometryRotation=0;
+				for(i=0;i<6;i++)
+				{
+					notePlanes[i].rotation.y+= ( targetRotation - notePlanes[i].rotation.y ) * 0.05;
+					notePlanes[i].position.x=notePlaneOrigin.x+rotationR*Math.sin(notePlanes[i].rotation.y+geometryRotation)
+					notePlanes[i].position.z=notePlaneOrigin.z+rotationR*Math.cos(notePlanes[i].rotation.y+geometryRotation)
+					geometryRotation+=2*Math.PI/notePlaneNumber;
+				}
+				for(i=0;i<6;i++)
+				{
+					staveNotePlanes[i].rotation.y+= ( targetRotation - staveNotePlanes[i].rotation.y ) * 0.05;
+					staveNotePlanes[i].position.x=staveNotePlaneOrigin.x+rotationR*Math.sin(staveNotePlanes[i].rotation.y+geometryRotation)
+					staveNotePlanes[i].position.z=staveNotePlaneOrigin.z+rotationR*Math.cos(staveNotePlanes[i].rotation.y+geometryRotation)
+					geometryRotation+=2*Math.PI/notePlaneNumber;
+				}
+				for(i=0;i<6;i++)
+				{
+					numberedMusicalNotePlanes[i].rotation.y+= ( targetRotation - numberedMusicalNotePlanes[i].rotation.y ) * 0.05;
+					numberedMusicalNotePlanes[i].position.x=numberedMusicalNotePlaneOrigin.x+rotationR*Math.sin(numberedMusicalNotePlanes[i].rotation.y+geometryRotation)
+					numberedMusicalNotePlanes[i].position.z=numberedMusicalNotePlaneOrigin.z+rotationR*Math.cos(numberedMusicalNotePlanes[i].rotation.y+geometryRotation)
+					geometryRotation+=2*Math.PI/notePlaneNumber;
+				}
+				renderer.render( scene, camera );
+
+			}
+
+
+		</script>
+
+	</body>
+</html>

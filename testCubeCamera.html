@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>测试CubeCamera</title>
+    <!--样式-->
+    <style>
+        body{
+            margin:0px;
+            overflow: hidden;
+        }
+    </style>
+    <!--引入THREE.js-->
+    <script src="three.js"></script>
+    <script src="OrbitControls.js"></script>
+</head>
+<body>
+    <script>
+//        创建场景
+        var scene=new THREE.Scene();
+//设置背景
+scene.background = new THREE.CubeTextureLoader()
+        .setPath( 'MilkyWay/' )
+        .load( [ 'dark-s_px.jpg', 'dark-s_nx.jpg', 'dark-s_py.jpg', 'dark-s_ny.jpg', 'dark-s_pz.jpg', 'dark-s_nz.jpg' ] );
+
+//        创建盒子模型
+        var boxGeometry=new THREE.BoxGeometry(100,100,100);
+        var material=new THREE.MeshLambertMaterial({
+            color:0xabcdef
+        })
+        var box=new THREE.Mesh(boxGeometry,material);
+//        scene.add(box);
+//        创建灯光
+        var ambientLight=new THREE.AmbientLight(0xffffff);
+        scene.add(ambientLight);
+//        创建照相机
+        var camera=new THREE.PerspectiveCamera(45,window.innerWidth/window.innerHeight,1,5000);
+        camera.position.set(0,200,300);
+        camera.lookAt(scene.position);
+
+//        创建渲染器
+        var renderer= new THREE.WebGLRenderer();
+        renderer.setClearColor(0xf0f0f0);
+        renderer.setSize(window.innerWidth,window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+//测试CubeCamera
+var cubeCamera = new THREE.CubeCamera( 1, 100000, 128 );
+scene.add( cubeCamera );
+//创建汽车
+var chromeMaterial = new THREE.MeshLambertMaterial( { color: 0xffffff, envMap: cubeCamera.renderTarget } );
+var car = new THREE.Mesh( new THREE.BoxGeometry(200,200,200), chromeMaterial );
+scene.add( car );
+
+//更新渲染目标立方体
+car.visible= false;
+cubeCamera.position.copy( car.position );
+cubeCamera.updateCubeMap( renderer, scene );
+
+//绘制场景
+car.visible= true ;
+renderer.render( scene, camera );
+//        渲染函数
+        function render() {
+            renderer.render(scene,camera);
+        }
+
+//        创建控制器
+        var control=new THREE.OrbitControls(camera);
+        control.addEventListener('change',render);
+//        动画控制函数
+        function animate() {
+            requestAnimationFrame(animate);
+            render();
+        }
+        animate();
+//        监听窗口大小改变
+        window.addEventListener('resize',onWindowResize,false);
+        function onWindowResize() {
+            camera.aspect=window.innerWidth/window.innerHeight;
+            camera.updateProjectionMatrix();
+
+            renderer.setSize(window.innerWidth,window.innerHeight);
+            render();
+        }
+    </script>
+</body>
+</html>
